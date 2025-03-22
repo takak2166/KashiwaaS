@@ -1,6 +1,6 @@
 """
-ロギング設定モジュール
-アプリケーション全体で一貫したロギングを提供します
+Logging Configuration Module
+Provides consistent logging throughout the application
 """
 import os
 import sys
@@ -8,25 +8,25 @@ from pathlib import Path
 
 from loguru import logger
 
-# ログディレクトリの作成
+# Create log directory
 log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
 
-# 環境変数からログレベルと保持期間を取得
+# Get log level and retention period from environment variables
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
 
-# ロガーの設定
-logger.remove()  # デフォルトのハンドラを削除
+# Configure logger
+logger.remove()  # Remove default handler
 
-# 標準エラー出力へのログ
+# Log to standard error
 logger.add(
     sys.stderr,
     level=LOG_LEVEL,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
 )
 
-# ファイルへのログ
+# Log to file
 logger.add(
     log_dir / "app.log",
     rotation="1 day",
@@ -36,7 +36,7 @@ logger.add(
     encoding="utf-8",
 )
 
-# エラーログは別ファイルにも出力
+# Log errors to a separate file
 logger.add(
     log_dir / "error.log",
     rotation="1 day",
@@ -49,12 +49,12 @@ logger.add(
 
 def get_logger(name):
     """
-    名前付きロガーを取得します
+    Get a named logger
 
     Args:
-        name (str): ロガー名（通常はモジュール名）
+        name (str): Logger name (usually the module name)
 
     Returns:
-        loguru.Logger: 設定済みのロガーインスタンス
+        loguru.Logger: Configured logger instance
     """
     return logger.bind(name=name)

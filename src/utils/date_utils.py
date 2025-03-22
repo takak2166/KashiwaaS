@@ -1,6 +1,6 @@
 """
-日付操作ユーティリティ
-日付と時刻の変換、操作を行う関数を提供します
+Date Utility Module
+Provides functions for date and time conversion and manipulation
 """
 import datetime
 from typing import Optional, Tuple, Union
@@ -12,19 +12,19 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# タイムゾーン設定
+# Timezone configuration
 DEFAULT_TIMEZONE = pytz.timezone(config.timezone if config else "Asia/Tokyo")
 
 
 def get_current_time(timezone: Optional[pytz.timezone] = None) -> datetime.datetime:
     """
-    現在時刻を取得します
+    Get the current time
 
     Args:
-        timezone: タイムゾーン（指定がない場合はデフォルトタイムゾーン）
+        timezone: Timezone (default timezone if not specified)
 
     Returns:
-        datetime.datetime: 現在時刻（タイムゾーン付き）
+        datetime.datetime: Current time with timezone
     """
     tz = timezone or DEFAULT_TIMEZONE
     return datetime.datetime.now(tz)
@@ -32,13 +32,13 @@ def get_current_time(timezone: Optional[pytz.timezone] = None) -> datetime.datet
 
 def convert_to_timestamp(dt: Union[datetime.datetime, str]) -> float:
     """
-    日時をUnixタイムスタンプ（秒）に変換します
+    Convert datetime to Unix timestamp (seconds)
 
     Args:
-        dt: 日時オブジェクトまたはISO形式の日時文字列
+        dt: Datetime object or ISO format datetime string
 
     Returns:
-        float: Unixタイムスタンプ（秒）
+        float: Unix timestamp (seconds)
     """
     if isinstance(dt, str):
         dt = datetime.datetime.fromisoformat(dt.replace("Z", "+00:00"))
@@ -51,14 +51,14 @@ def convert_to_timestamp(dt: Union[datetime.datetime, str]) -> float:
 
 def convert_from_timestamp(timestamp: float, timezone: Optional[pytz.timezone] = None) -> datetime.datetime:
     """
-    Unixタイムスタンプ（秒）を日時オブジェクトに変換します
+    Convert Unix timestamp (seconds) to datetime object
 
     Args:
-        timestamp: Unixタイムスタンプ（秒）
-        timezone: タイムゾーン（指定がない場合はデフォルトタイムゾーン）
+        timestamp: Unix timestamp (seconds)
+        timezone: Timezone (default timezone if not specified)
 
     Returns:
-        datetime.datetime: 日時オブジェクト（タイムゾーン付き）
+        datetime.datetime: Datetime object with timezone
     """
     tz = timezone or DEFAULT_TIMEZONE
     return datetime.datetime.fromtimestamp(timestamp, tz)
@@ -66,19 +66,19 @@ def convert_from_timestamp(timestamp: float, timezone: Optional[pytz.timezone] =
 
 def get_date_range(days: int, end_date: Optional[datetime.datetime] = None) -> Tuple[float, float]:
     """
-    指定日数分の日付範囲をタイムスタンプで取得します
+    Get date range as timestamps for the specified number of days
 
     Args:
-        days: 日数
-        end_date: 終了日（指定がない場合は現在日時）
+        days: Number of days
+        end_date: End date (current time if not specified)
 
     Returns:
-        Tuple[float, float]: (開始タイムスタンプ, 終了タイムスタンプ)
+        Tuple[float, float]: (start timestamp, end timestamp)
     """
     end = end_date or get_current_time()
     start = end - datetime.timedelta(days=days)
     
-    # 日付の始まりと終わりに調整
+    # Adjust to start and end of day
     start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
     
@@ -87,27 +87,27 @@ def get_date_range(days: int, end_date: Optional[datetime.datetime] = None) -> T
 
 def is_weekend(dt: Optional[datetime.datetime] = None) -> bool:
     """
-    指定日が週末（土日）かどうかを判定します
+    Determine if the specified date is a weekend (Saturday or Sunday)
 
     Args:
-        dt: 日時オブジェクト（指定がない場合は現在日時）
+        dt: Datetime object (current time if not specified)
 
     Returns:
-        bool: 週末の場合はTrue
+        bool: True if weekend
     """
     dt = dt or get_current_time()
-    return dt.weekday() >= 5  # 5=土曜日, 6=日曜日
+    return dt.weekday() >= 5  # 5=Saturday, 6=Sunday
 
 
 def get_day_of_week(dt: Optional[datetime.datetime] = None) -> int:
     """
-    曜日を数値で取得します（0=月曜日, 6=日曜日）
+    Get day of week as a number (0=Monday, 6=Sunday)
 
     Args:
-        dt: 日時オブジェクト（指定がない場合は現在日時）
+        dt: Datetime object (current time if not specified)
 
     Returns:
-        int: 曜日（0-6）
+        int: Day of week (0-6)
     """
     dt = dt or get_current_time()
     return dt.weekday()
@@ -115,13 +115,13 @@ def get_day_of_week(dt: Optional[datetime.datetime] = None) -> int:
 
 def get_hour_of_day(dt: Optional[datetime.datetime] = None) -> int:
     """
-    時間（0-23）を取得します
+    Get hour of day (0-23)
 
     Args:
-        dt: 日時オブジェクト（指定がない場合は現在日時）
+        dt: Datetime object (current time if not specified)
 
     Returns:
-        int: 時間（0-23）
+        int: Hour of day (0-23)
     """
     dt = dt or get_current_time()
     return dt.hour

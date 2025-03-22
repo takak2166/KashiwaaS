@@ -1,5 +1,5 @@
 """
-Slack API関連のテスト
+Tests for Slack API related functionality
 """
 import os
 from datetime import datetime, timedelta
@@ -14,17 +14,17 @@ from src.slack.message import SlackReaction
 
 
 class TestSlackMessage:
-    """SlackMessageクラスのテスト"""
+    """Tests for SlackMessage class"""
     
     def test_from_slack_data(self):
-        """from_slack_dataメソッドのテスト"""
-        # テスト用のSlackメッセージデータ
+        """Test for from_slack_data method"""
+        # Test Slack message data
         channel_id = "C12345678"
         message_data = {
             "type": "message",
             "user": "U12345",
             "text": "Hello <@U67890>!",
-            "ts": "1609459200.000000",  # 2021-01-01 00:00:00
+            "ts": "1609459200.000000",  # 2021-01-01 00:00:00 (timestamp)
             "reactions": [
                 {
                     "name": "thumbsup",
@@ -43,10 +43,10 @@ class TestSlackMessage:
             ]
         }
         
-        # SlackMessageオブジェクトに変換
+        # Convert to SlackMessage object
         message = SlackMessage.from_slack_data(channel_id, message_data)
         
-        # 変換結果の検証
+        # Verify conversion result
         assert message.channel_id == channel_id
         assert message.ts == "1609459200.000000"
         assert message.user_id == "U12345"
@@ -63,8 +63,8 @@ class TestSlackMessage:
         assert message.attachments[0].size == 12345
     
     def test_to_elasticsearch_doc(self):
-        """to_elasticsearch_docメソッドのテスト"""
-        # テスト用のSlackMessageオブジェクト
+        """Test for to_elasticsearch_doc method"""
+        # Test SlackMessage object
         message = SlackMessage(
             channel_id="C12345678",
             ts="1609459200.000000",
@@ -74,7 +74,7 @@ class TestSlackMessage:
             timestamp=datetime(2021, 1, 1, 0, 0, 0),
             is_weekend=False,
             hour_of_day=0,
-            day_of_week=4,  # 金曜日
+            day_of_week=4,  # Friday
             thread_ts="1609459200.000000",
             reply_count=2,
             reactions=[
@@ -88,10 +88,10 @@ class TestSlackMessage:
             attachments=[]
         )
         
-        # Elasticsearchドキュメントに変換
+        # Convert to Elasticsearch document
         doc = message.to_elasticsearch_doc()
         
-        # 変換結果の検証
+        # Verify conversion result
         assert doc["channel_id"] == "C12345678"
         assert doc["user_id"] == "U12345"
         assert doc["username"] == "testuser"
@@ -107,24 +107,24 @@ class TestSlackMessage:
 
 @pytest.mark.skipif(not os.getenv("SLACK_API_TOKEN"), reason="SLACK_API_TOKEN not set")
 class TestSlackClient:
-    """SlackClientクラスのテスト"""
+    """Tests for SlackClient class"""
     
     def test_get_channel_info(self):
-        """get_channel_infoメソッドのテスト"""
-        # 実際のAPIを使用するテスト
+        """Test for get_channel_info method"""
+        # Test using actual API
         client = SlackClient()
         channel_info = client.get_channel_info()
         
-        # 結果の検証
+        # Verify results
         assert "id" in channel_info
         assert "name" in channel_info
     
     def test_get_messages(self):
-        """get_messagesメソッドのテスト"""
-        # 実際のAPIを使用するテスト
+        """Test for get_messages method"""
+        # Test using actual API
         client = SlackClient()
         
-        # 過去1日分のメッセージを取得
+        # Get messages from the past day
         end_date = datetime.now()
         start_date = end_date - timedelta(days=1)
         
@@ -135,7 +135,7 @@ class TestSlackClient:
             include_threads=True
         ))
         
-        # 結果の検証（メッセージが存在しない場合もあるため、構造のみ確認）
+        # Verify results (only check structure as messages may not exist)
         for message in messages:
             assert isinstance(message, SlackMessage)
             assert message.channel_id == client.channel_id
@@ -144,16 +144,16 @@ class TestSlackClient:
 
 
 class TestSlackClientMock:
-    """SlackClientクラスのモックテスト"""
+    """Mock tests for SlackClient class"""
     
     @patch("src.slack.client.WebClient")
     def test_get_messages_mock(self, mock_web_client):
-        """get_messagesメソッドのモックテスト"""
-        # WebClientのモック設定
+        """Mock test for get_messages method"""
+        # Set up WebClient mock
         mock_client = MagicMock()
         mock_web_client.return_value = mock_client
         
-        # conversations_historyの戻り値を設定
+        # Set return value for conversations_history
         mock_client.conversations_history.return_value = {
             "messages": [
                 {
@@ -164,11 +164,11 @@ class TestSlackClientMock:
                 }
             ],
             "response_metadata": {
-                "next_cursor": ""  # 次ページなし
+                "next_cursor": ""  # No next page
             }
         }
         
-        # conversations_repliesの戻り値を設定
+        # Set return value for conversations_replies
         mock_client.conversations_replies.return_value = {
             "messages": [
                 {
@@ -186,25 +186,25 @@ class TestSlackClientMock:
                 }
             ],
             "response_metadata": {
-                "next_cursor": ""  # 次ページなし
+                "next_cursor": ""  # No next page
             }
         }
         
-        # SlackClientのインスタンス化
+        # Initialize SlackClient
         client = SlackClient(token="xoxb-test-token", channel_id="C12345678")
         
-        # メッセージの取得
+        # Get messages
         messages = list(client.get_messages(
             oldest=datetime(2021, 1, 1),
             latest=datetime(2021, 1, 2)
         ))
         
-        # 結果の検証
-        assert len(messages) == 1  # スレッド返信は親メッセージに含まれる
+        # Verify results
+        assert len(messages) == 1  # Thread replies are included in parent message
         assert messages[0].user_id == "U12345"
         assert messages[0].text == "Test message"
         
-        # APIが正しく呼び出されたことを確認
+        # Verify API was called correctly
         mock_client.conversations_history.assert_called_once()
-        # スレッド返信の取得は呼び出されていないことを確認（テストデータにスレッドがないため）
+        # Verify thread replies were not fetched (test data has no thread)
         mock_client.conversations_replies.assert_not_called()

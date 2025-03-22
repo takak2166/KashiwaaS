@@ -1,6 +1,6 @@
 """
-設定管理モジュール
-環境変数からの設定読み込みと検証を行います
+Configuration Management Module
+Loads and validates settings from environment variables
 """
 import os
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# .envファイルの読み込み
+# Load .env file
 dotenv_path = Path(".env")
 if dotenv_path.exists():
     logger.info(f"Loading environment from {dotenv_path.absolute()}")
@@ -24,14 +24,14 @@ else:
 
 @dataclass
 class SlackConfig:
-    """Slack API設定"""
+    """Slack API configuration"""
     api_token: str
     channel_id: str
 
 
 @dataclass
 class ElasticsearchConfig:
-    """Elasticsearch設定"""
+    """Elasticsearch configuration"""
     host: str
     user: Optional[str] = None
     password: Optional[str] = None
@@ -39,7 +39,7 @@ class ElasticsearchConfig:
 
 @dataclass
 class AppConfig:
-    """アプリケーション全体の設定"""
+    """Application-wide configuration"""
     slack: SlackConfig
     elasticsearch: ElasticsearchConfig
     timezone: str
@@ -47,15 +47,15 @@ class AppConfig:
 
 def load_config() -> AppConfig:
     """
-    環境変数から設定を読み込み、AppConfig オブジェクトを返します
+    Load settings from environment variables and return an AppConfig object
 
     Returns:
-        AppConfig: アプリケーション設定
+        AppConfig: Application configuration
     
     Raises:
-        ValueError: 必須の環境変数が設定されていない場合
+        ValueError: If required environment variables are not set
     """
-    # Slack設定の読み込み
+    # Load Slack configuration
     slack_token = os.getenv("SLACK_API_TOKEN")
     slack_channel = os.getenv("SLACK_CHANNEL_ID")
     
@@ -64,12 +64,12 @@ def load_config() -> AppConfig:
     if not slack_channel:
         raise ValueError("SLACK_CHANNEL_ID environment variable is required")
     
-    # Elasticsearch設定の読み込み
+    # Load Elasticsearch configuration
     es_host = os.getenv("ELASTICSEARCH_HOST", "http://elasticsearch:9200")
     es_user = os.getenv("ELASTICSEARCH_USER")
     es_password = os.getenv("ELASTICSEARCH_PASSWORD")
     
-    # タイムゾーン設定
+    # Timezone configuration
     timezone = os.getenv("TIMEZONE", "Asia/Tokyo")
     
     return AppConfig(
@@ -86,7 +86,7 @@ def load_config() -> AppConfig:
     )
 
 
-# グローバル設定オブジェクト
+# Global configuration object
 try:
     config = load_config()
     logger.info(f"Configuration loaded successfully. Timezone: {config.timezone}")

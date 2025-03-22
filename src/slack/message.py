@@ -1,6 +1,6 @@
 """
-Slackメッセージデータモデル
-Slack APIから取得したメッセージデータを扱うためのデータクラスを提供します
+Slack Message Data Model
+Provides data classes for handling message data retrieved from the Slack API
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,7 +11,7 @@ from src.utils.date_utils import convert_from_timestamp, get_day_of_week, get_ho
 
 @dataclass
 class SlackReaction:
-    """Slackのリアクション情報"""
+    """Slack reaction information"""
     name: str
     count: int
     users: List[str] = field(default_factory=list)
@@ -19,7 +19,7 @@ class SlackReaction:
 
 @dataclass
 class SlackAttachment:
-    """Slackの添付ファイル情報"""
+    """Slack attachment information"""
     type: str
     size: int = 0
     url: Optional[str] = None
@@ -27,57 +27,57 @@ class SlackAttachment:
 
 @dataclass
 class SlackMessage:
-    """Slackのメッセージ情報"""
-    # 基本情報
+    """Slack message information"""
+    # Basic information
     channel_id: str
-    ts: str  # タイムスタンプ（Slackの一意識別子）
+    ts: str  # Timestamp (Slack's unique identifier)
     user_id: str
     username: str
     text: str
     
-    # 時間情報
+    # Time information
     timestamp: datetime  # Python datetime
     is_weekend: bool
     hour_of_day: int
     day_of_week: int
     
-    # スレッド情報
+    # Thread information
     thread_ts: Optional[str] = None
     reply_count: int = 0
     
-    # リアクションと添付ファイル
+    # Reactions and attachments
     reactions: List[SlackReaction] = field(default_factory=list)
     mentions: List[str] = field(default_factory=list)
     attachments: List[SlackAttachment] = field(default_factory=list)
     
-    # 元のSlackデータ
+    # Original Slack data
     raw_data: Dict[str, Any] = field(default_factory=dict)
     
     @classmethod
     def from_slack_data(cls, channel_id: str, message_data: Dict[str, Any]) -> 'SlackMessage':
         """
-        Slack APIから取得したメッセージデータからSlackMessageオブジェクトを作成します
+        Create a SlackMessage object from message data retrieved from the Slack API
         
         Args:
-            channel_id: チャンネルID
-            message_data: Slack APIから取得したメッセージデータ
+            channel_id: Channel ID
+            message_data: Message data retrieved from the Slack API
             
         Returns:
-            SlackMessage: 変換されたメッセージオブジェクト
+            SlackMessage: Converted message object
         """
-        # タイムスタンプをPythonのdatetimeに変換
+        # Convert timestamp to Python datetime
         ts = message_data.get('ts', '0')
         timestamp = convert_from_timestamp(float(ts))
         
-        # ユーザー情報
+        # User information
         user_id = message_data.get('user', 'unknown')
         username = message_data.get('username', 'Unknown User')
         
-        # スレッド情報
+        # Thread information
         thread_ts = message_data.get('thread_ts')
         reply_count = message_data.get('reply_count', 0)
         
-        # リアクション情報
+        # Reaction information
         reactions = []
         for reaction_data in message_data.get('reactions', []):
             reaction = SlackReaction(
@@ -87,15 +87,15 @@ class SlackMessage:
             )
             reactions.append(reaction)
         
-        # メンション情報を抽出
+        # Extract mention information
         mentions = []
         text = message_data.get('text', '')
-        # <@U12345> 形式のメンションを抽出
+        # Extract mentions in <@U12345> format
         import re
         mention_pattern = r'<@([A-Z0-9]+)>'
         mentions = re.findall(mention_pattern, text)
         
-        # 添付ファイル情報
+        # Attachment information
         attachments = []
         for file_data in message_data.get('files', []):
             attachment = SlackAttachment(
@@ -125,10 +125,10 @@ class SlackMessage:
     
     def to_elasticsearch_doc(self) -> Dict[str, Any]:
         """
-        ElasticsearchのドキュメントとしてデータをJSON形式に変換します
+        Convert data to JSON format as an Elasticsearch document
         
         Returns:
-            Dict[str, Any]: Elasticsearchに保存可能なドキュメント
+            Dict[str, Any]: Document that can be stored in Elasticsearch
         """
         return {
             "timestamp": self.timestamp.isoformat(),

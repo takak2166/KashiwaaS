@@ -1,6 +1,6 @@
 """
-Slack APIクライアント
-Slack APIを使用してメッセージデータを取得するクライアントを提供します
+Slack API Client
+Provides a client for retrieving message data using the Slack API
 """
 import time
 from datetime import datetime
@@ -19,19 +19,19 @@ logger = get_logger(__name__)
 
 class SlackClient:
     """
-    Slack APIクライアント
+    Slack API Client
     
-    Slack APIを使用してチャンネルのメッセージを取得します。
-    ページネーション処理やレート制限への対応を含みます。
+    Retrieves messages from Slack channels using the Slack API.
+    Includes handling for pagination and rate limiting.
     """
     
     def __init__(self, token: Optional[str] = None, channel_id: Optional[str] = None):
         """
-        SlackClientを初期化します
+        Initialize the SlackClient
         
         Args:
-            token: Slack API Token (指定がない場合は環境変数から取得)
-            channel_id: 取得対象のチャンネルID (指定がない場合は環境変数から取得)
+            token: Slack API Token (if not specified, retrieved from environment variables)
+            channel_id: Channel ID to fetch from (if not specified, retrieved from environment variables)
         """
         self.token = token or (config.slack.api_token if config else None)
         if not self.token:
@@ -46,10 +46,10 @@ class SlackClient:
     
     def get_channel_info(self) -> Dict[str, Any]:
         """
-        チャンネル情報を取得します
+        Get channel information
         
         Returns:
-            Dict[str, Any]: チャンネル情報
+            Dict[str, Any]: Channel information
         """
         try:
             response = self.client.conversations_info(channel=self.channel_id)
@@ -66,18 +66,18 @@ class SlackClient:
         include_threads: bool = True
     ) -> Generator[SlackMessage, None, None]:
         """
-        指定した期間のメッセージを取得します
+        Get messages for the specified period
         
         Args:
-            oldest: 取得開始日時
-            latest: 取得終了日時
-            limit: 1回のリクエストで取得するメッセージ数
-            include_threads: スレッドの返信も取得するかどうか
+            oldest: Start date/time for fetching (None to fetch from the beginning)
+            latest: End date/time for fetching
+            limit: Number of messages to fetch per request
+            include_threads: Whether to include thread replies
             
         Yields:
-            SlackMessage: 取得したメッセージ
+            SlackMessage: Retrieved messages
         """
-        # タイムスタンプに変換
+        # Convert to timestamps
         oldest_ts = convert_to_timestamp(oldest) if oldest else None
         latest_ts = convert_to_timestamp(latest) if latest else None
         
@@ -86,7 +86,7 @@ class SlackClient:
             f"(oldest: {oldest_ts}, latest: {latest_ts}, include_threads: {include_threads})"
         )
         
-        # メッセージ取得のためのパラメータ
+        # Parameters for message retrieval
         params = {
             "channel": self.channel_id,
             "limit": limit,
@@ -96,32 +96,32 @@ class SlackClient:
         if latest_ts:
             params["latest"] = str(latest_ts)
         
-        # ページネーション用のカーソル
+        # Cursor for pagination
         cursor = None
         
-        # メッセージ数カウント
+        # Message count
         message_count = 0
         thread_message_count = 0
         
         while True:
             try:
-                # カーソルがある場合は追加
+                # Add cursor if available
                 if cursor:
                     params["cursor"] = cursor
                 
-                # APIリクエスト
+                # API request
                 response = self.client.conversations_history(**params)
                 messages = response.get("messages", [])
                 
-                # 取得したメッセージを処理
+                # Process retrieved messages
                 for message in messages:
                     message_count += 1
                     
-                    # メッセージオブジェクトに変換して返す
+                    # Convert to SlackMessage object and yield
                     slack_message = SlackMessage.from_slack_data(self.channel_id, message)
                     yield slack_message
                     
-                    # スレッドの返信を取得
+                    # Get thread replies
                     if include_threads and message.get("thread_ts") and message.get("reply_count", 0) > 0:
                         thread_messages = self._get_thread_replies(message["thread_ts"])
                         for thread_message in thread_messages:
@@ -129,17 +129,17 @@ class SlackClient:
                             thread_slack_message = SlackMessage.from_slack_data(self.channel_id, thread_message)
                             yield thread_slack_message
                 
-                # 次のページがあるかチェック
+                # Check if there is a next page
                 cursor = response.get("response_metadata", {}).get("next_cursor")
                 if not cursor:
                     break
                 
-                # レート制限に対応するため少し待機
+                # Wait a bit to handle rate limiting
                 time.sleep(0.5)
                 
             except SlackApiError as e:
                 if e.response["error"] == "ratelimited":
-                    # レート制限に達した場合は待機して再試行
+                    # If rate limited, wait and retry
                     retry_after = int(e.response.headers.get("Retry-After", 1))
                     logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
                     time.sleep(retry_after)
@@ -152,13 +152,13 @@ class SlackClient:
     
     def _get_thread_replies(self, thread_ts: str) -> List[Dict[str, Any]]:
         """
-        スレッドの返信を取得します
+        Get thread replies
         
         Args:
-            thread_ts: スレッドの親メッセージのタイムスタンプ
+            thread_ts: Timestamp of the parent message in the thread
             
         Returns:
-            List[Dict[str, Any]]: スレッドの返信メッセージのリスト
+            List[Dict[str, Any]]: List of thread reply messages
         """
         try:
             all_replies = []
@@ -177,18 +177,18 @@ class SlackClient:
                 response = self.client.conversations_replies(**params)
                 replies = response.get("messages", [])
                 
-                # 最初のメッセージは親メッセージなのでスキップ
+                # Skip the first message as it's the parent message
                 if replies and replies[0].get("ts") == thread_ts:
                     replies = replies[1:]
                 
                 all_replies.extend(replies)
                 
-                # 次のページがあるかチェック
+                # Check if there is a next page
                 cursor = response.get("response_metadata", {}).get("next_cursor")
                 if not cursor:
                     break
                 
-                # レート制限に対応するため少し待機
+                # Wait a bit to handle rate limiting
                 time.sleep(0.5)
             
             return all_replies
@@ -196,7 +196,7 @@ class SlackClient:
         except SlackApiError as e:
             logger.error(f"Failed to fetch thread replies: {e}")
             if e.response["error"] == "ratelimited":
-                # レート制限に達した場合は待機して再試行
+                # If rate limited, wait and retry
                 retry_after = int(e.response.headers.get("Retry-After", 1))
                 logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
                 time.sleep(retry_after)
@@ -212,16 +212,16 @@ class SlackClient:
         attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
-        チャンネルにメッセージを投稿します
+        Post a message to the channel
         
         Args:
-            text: メッセージテキスト
-            blocks: Block Kit形式のメッセージブロック
-            thread_ts: 返信先のスレッドのタイムスタンプ
-            attachments: 添付ファイル情報
+            text: Message text
+            blocks: Message blocks in Block Kit format
+            thread_ts: Timestamp of the thread to reply to
+            attachments: Attachment information
             
         Returns:
-            Dict[str, Any]: 投稿結果
+            Dict[str, Any]: Post result
         """
         try:
             params = {
