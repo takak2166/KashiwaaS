@@ -101,54 +101,61 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
   ```json
   {
     "index_patterns": ["slack-*"],
-    "settings": {
-      "number_of_shards": 1,
-      "number_of_replicas": 0,
-      "analysis": {
-        "analyzer": {
-          "kuromoji_analyzer": {
-            "type": "custom",
-            "tokenizer": "kuromoji_tokenizer",
-            "filter": ["kuromoji_baseform", "lowercase", "ja_stop"]
+    "priority": 100,
+    "version": 1,
+    "_meta": {
+      "description": "Template for Slack messages"
+    },
+    "template": {
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "analysis": {
+          "analyzer": {
+            "kuromoji_analyzer": {
+              "type": "custom",
+              "tokenizer": "kuromoji_tokenizer",
+              "filter": ["kuromoji_baseform", "lowercase", "ja_stop"]
+            }
           }
         }
-      }
-    },
-    "mappings": {
-      "properties": {
-        "timestamp": { "type": "date" },
-        "channel_id": { "type": "keyword" },
-        "user_id": { "type": "keyword" },
-        "username": { "type": "keyword" },
-        "text": { 
-          "type": "text",
-          "analyzer": "kuromoji_analyzer",
-          "fields": {
-            "keyword": { "type": "keyword", "ignore_above": 256 }
-          }
-        },
-        "thread_ts": { "type": "keyword" },
-        "reply_count": { "type": "integer" },
-        "reactions": {
-          "type": "nested",
-          "properties": {
-            "name": { "type": "keyword" },
-            "count": { "type": "integer" },
-            "users": { "type": "keyword" }
-          }
-        },
-        "mentions": { "type": "keyword" },
-        "attachments": {
-          "type": "nested",
-          "properties": {
-            "type": { "type": "keyword" },
-            "size": { "type": "long" },
-            "url": { "type": "keyword" }
-          }
-        },
-        "is_weekend": { "type": "boolean" },
-        "hour_of_day": { "type": "integer" },
-        "day_of_week": { "type": "integer" }
+      },
+      "mappings": {
+        "properties": {
+          "timestamp": { "type": "date" },
+          "channel_id": { "type": "keyword" },
+          "user_id": { "type": "keyword" },
+          "username": { "type": "keyword" },
+          "text": {
+            "type": "text",
+            "analyzer": "kuromoji_analyzer",
+            "fields": {
+              "keyword": { "type": "keyword", "ignore_above": 256 }
+            }
+          },
+          "thread_ts": { "type": "keyword" },
+          "reply_count": { "type": "integer" },
+          "reactions": {
+            "type": "nested",
+            "properties": {
+              "name": { "type": "keyword" },
+              "count": { "type": "integer" },
+              "users": { "type": "keyword" }
+            }
+          },
+          "mentions": { "type": "keyword" },
+          "attachments": {
+            "type": "nested",
+            "properties": {
+              "type": { "type": "keyword" },
+              "size": { "type": "long" },
+              "url": { "type": "keyword" }
+            }
+          },
+          "is_weekend": { "type": "boolean" },
+          "hour_of_day": { "type": "integer" },
+          "day_of_week": { "type": "integer" }
+        }
       }
     }
   }

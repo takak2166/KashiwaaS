@@ -5,9 +5,12 @@ This module serves as the entry point for the application.
 import argparse
 import sys
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
+from src.es_client.client import ElasticsearchClient
+from src.es_client.index import get_index_name
 from src.slack.client import SlackClient
+from src.slack.message import SlackMessage
 from src.utils.config import config
 from src.utils.date_utils import convert_from_timestamp, get_current_time
 from src.utils.logger import get_logger
@@ -39,6 +42,12 @@ def parse_args():
     fetch_parser.add_argument(
         "--all", action="store_true", help="Fetch all messages (ignores --days and --end-date)"
     )
+    fetch_parser.add_argument(
+        "--no-store", action="store_true", help="Do not store messages in Elasticsearch"
+    )
+    fetch_parser.add_argument(
+        "--batch-size", type=int, default=500, help="Batch size for Elasticsearch bulk indexing (default: 500)"
+    )
     
     # report command
     report_parser = subparsers.add_parser("report", help="Generate and post report to Slack")
@@ -61,7 +70,9 @@ def fetch_messages(
     channel_id: Optional[str] = None,
     end_date: Optional[datetime] = None,
     include_threads: bool = True,
-    fetch_all: bool = False
+    fetch_all: bool = False,
+    store_messages: bool = True,
+    batch_size: int = 500
 ):
     """
     Fetch Slack messages for the specified period
@@ -72,6 +83,8 @@ def fetch_messages(
         end_date: End date for fetching
         include_threads: Whether to include thread replies
         fetch_all: Whether to fetch all messages (ignores days and end_date)
+        store_messages: Whether to store messages in Elasticsearch
+        batch_size: Batch size for Elasticsearch bulk indexing
     """
     # Set end_date to current time if not specified
     if end_date is None:
@@ -100,9 +113,22 @@ def fetch_messages(
         logger.error(f"Failed to get channel info: {e}")
         return
     
+    # Initialize Elasticsearch client if storing messages
+    es_client = None
+    if store_messages:
+        try:
+            es_client = ElasticsearchClient()
+            logger.info("Connected to Elasticsearch")
+        except Exception as e:
+            logger.error(f"Failed to connect to Elasticsearch: {e}")
+            logger.warning("Messages will not be stored in Elasticsearch")
+            store_messages = False
+    
     # Fetch messages
     try:
         message_count = 0
+        messages_buffer: List[SlackMessage] = []
+        
         for message in client.get_messages(
             oldest=start_date,
             latest=end_date,
@@ -110,8 +136,11 @@ def fetch_messages(
         ):
             message_count += 1
             
-            # TODO: Implement Elasticsearch storage
-            # For now, just log the message information
+            # Add message to buffer for batch processing
+            if store_messages:
+                messages_buffer.append(message)
+            
+            # Log message information
             reactions_str = ", ".join([f"{r.name}({r.count})" for r in message.reactions])
             logger.debug(
                 f"Message: {message.timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
@@ -120,15 +149,49 @@ def fetch_messages(
                 f"Reactions: {reactions_str if message.reactions else 'None'}"
             )
             
+            # Process batch if buffer is full
+            if store_messages and len(messages_buffer) >= batch_size:
+                _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
+                messages_buffer = []
+            
             # Display progress every 100 messages
             if message_count % 100 == 0:
                 logger.info(f"Processed {message_count} messages so far")
+        
+        # Process remaining messages in buffer
+        if store_messages and messages_buffer:
+            _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
         
         logger.info(f"Completed. Total {message_count} messages processed")
         
     except Exception as e:
         logger.error(f"Error during message fetching: {e}")
         raise
+
+
+def _store_messages_batch(
+    es_client: ElasticsearchClient,
+    channel_name: str,
+    messages: List[SlackMessage],
+    batch_size: int
+) -> None:
+    """
+    Store a batch of messages in Elasticsearch
+    
+    Args:
+        es_client: ElasticsearchClient instance
+        channel_name: Channel name
+        messages: List of messages to store
+        batch_size: Batch size for logging
+    """
+    try:
+        result = es_client.index_slack_messages(channel_name, messages, batch_size)
+        logger.info(
+            f"Indexed {result.get('success', 0)} messages in Elasticsearch, "
+            f"{result.get('failed', 0)} failed"
+        )
+    except Exception as e:
+        logger.error(f"Failed to store messages in Elasticsearch: {e}")
 
 
 def main():
@@ -159,7 +222,9 @@ def main():
             channel_id=args.channel,
             end_date=end_date,
             include_threads=not args.no_threads,
-            fetch_all=args.all
+            fetch_all=args.all,
+            store_messages=not args.no_store,
+            batch_size=args.batch_size
         )
     
     elif args.command == "report":
