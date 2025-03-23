@@ -21,7 +21,7 @@ SLACK_INDEX_TEMPLATE = {
                     "kuromoji_analyzer": {
                         "type": "custom",
                         "tokenizer": "kuromoji_tokenizer",
-                        "filter": ["kuromoji_baseform", "lowercase", "ja_stop"]
+                        "filter": ["kuromoji_baseform", "lowercase", "ja_stop", "kuromoji_part_of_speech"]
                     }
                 }
             }
@@ -35,6 +35,7 @@ SLACK_INDEX_TEMPLATE = {
                 "text": {
                     "type": "text",
                     "analyzer": "kuromoji_analyzer",
+                    "fielddata": True,
                     "fields": {
                         "keyword": {"type": "keyword", "ignore_above": 256}
                     }

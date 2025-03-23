@@ -12,7 +12,7 @@ from src.es_client.index import get_index_name
 from src.slack.client import SlackClient
 from src.slack.message import SlackMessage
 from src.utils.config import config
-from src.utils.date_utils import convert_from_timestamp, get_current_time
+from src.utils.date_utils import get_current_time
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -75,7 +75,7 @@ def fetch_messages(
     batch_size: int = 500
 ):
     """
-    Fetch Slack messages for the specified period
+    Fetch Slack messages for the specified period and process them
     
     Args:
         days: Number of days to fetch
@@ -113,60 +113,116 @@ def fetch_messages(
         logger.error(f"Failed to get channel info: {e}")
         return
     
-    # Initialize Elasticsearch client if storing messages
-    es_client = None
-    if store_messages:
-        try:
-            es_client = ElasticsearchClient()
-            logger.info("Connected to Elasticsearch")
-        except Exception as e:
-            logger.error(f"Failed to connect to Elasticsearch: {e}")
-            logger.warning("Messages will not be stored in Elasticsearch")
-            store_messages = False
-    
     # Fetch messages
     try:
-        message_count = 0
-        messages_buffer: List[SlackMessage] = []
+        messages = list(_fetch_slack_messages(client, start_date, end_date, include_threads))
+        logger.info(f"Fetched {len(messages)} messages from Slack")
         
-        for message in client.get_messages(
-            oldest=start_date,
-            latest=end_date,
-            include_threads=include_threads
-        ):
-            message_count += 1
+        # Process messages
+        if store_messages:
+            process_messages(messages, channel_name, batch_size)
+        else:
+            # Just log the messages
+            for message in messages:
+                log_message(message)
             
-            # Add message to buffer for batch processing
-            if store_messages:
-                messages_buffer.append(message)
-            
-            # Log message information
-            reactions_str = ", ".join([f"{r.name}({r.count})" for r in message.reactions])
-            logger.debug(
-                f"Message: {message.timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"by {message.username} ({message.user_id})\n"
-                f"Text: {message.text}\n"
-                f"Reactions: {reactions_str if message.reactions else 'None'}"
-            )
-            
-            # Process batch if buffer is full
-            if store_messages and len(messages_buffer) >= batch_size:
-                _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
-                messages_buffer = []
-            
-            # Display progress every 100 messages
-            if message_count % 100 == 0:
-                logger.info(f"Processed {message_count} messages so far")
-        
-        # Process remaining messages in buffer
-        if store_messages and messages_buffer:
-            _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
-        
-        logger.info(f"Completed. Total {message_count} messages processed")
+        logger.info(f"Completed. Total {len(messages)} messages processed")
         
     except Exception as e:
         logger.error(f"Error during message fetching: {e}")
         raise
+
+
+def _fetch_slack_messages(
+    client: SlackClient,
+    start_date: Optional[datetime],
+    end_date: datetime,
+    include_threads: bool
+) -> List[SlackMessage]:
+    """
+    Fetch messages from Slack
+    
+    Args:
+        client: SlackClient instance
+        start_date: Start date for fetching
+        end_date: End date for fetching
+        include_threads: Whether to include thread replies
+        
+    Yields:
+        SlackMessage: Fetched messages
+    """
+    message_count = 0
+    
+    for message in client.get_messages(
+        oldest=start_date,
+        latest=end_date,
+        include_threads=include_threads
+    ):
+        message_count += 1
+        
+        # Display progress every 100 messages
+        if message_count % 100 == 0:
+            logger.info(f"Fetched {message_count} messages so far")
+        
+        yield message
+
+
+def log_message(message: SlackMessage) -> None:
+    """
+    Log message information
+    
+    Args:
+        message: SlackMessage to log
+    """
+    reactions_str = ", ".join([f"{r.name}({r.count})" for r in message.reactions])
+    logger.debug(
+        f"Message: {message.timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"by {message.username} ({message.user_id})\n"
+        f"Text: {message.text}\n"
+        f"Reactions: {reactions_str if message.reactions else 'None'}"
+    )
+
+
+def process_messages(
+    messages: List[SlackMessage],
+    channel_name: str,
+    batch_size: int = 500
+) -> None:
+    """
+    Process messages and store them in Elasticsearch
+    
+    Args:
+        messages: List of SlackMessage objects
+        channel_name: Channel name
+        batch_size: Batch size for Elasticsearch bulk indexing
+    """
+    # Initialize Elasticsearch client
+    try:
+        es_client = ElasticsearchClient()
+        logger.info("Connected to Elasticsearch")
+    except Exception as e:
+        logger.error(f"Failed to connect to Elasticsearch: {e}")
+        logger.warning("Messages will not be stored in Elasticsearch")
+        return
+    
+    # Process messages in batches
+    messages_buffer: List[SlackMessage] = []
+    
+    for message in messages:
+        # Log message information
+        log_message(message)
+        
+        # Add message to buffer
+        messages_buffer.append(message)
+        
+        # Process batch if buffer is full
+        if len(messages_buffer) >= batch_size:
+            _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
+            messages_buffer = []
+    
+    # Process remaining messages in buffer
+    if messages_buffer:
+        _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
 
 
 def _store_messages_batch(
