@@ -115,7 +115,7 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
             "kuromoji_analyzer": {
               "type": "custom",
               "tokenizer": "kuromoji_tokenizer",
-              "filter": ["kuromoji_baseform", "lowercase", "ja_stop"]
+              "filter": ["kuromoji_baseform", "lowercase", "ja_stop", "kuromoji_part_of_speech"]
             }
           }
         }
@@ -129,6 +129,7 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
           "text": {
             "type": "text",
             "analyzer": "kuromoji_analyzer",
+            "fielddata": true,
             "fields": {
               "keyword": { "type": "keyword", "ignore_above": 256 }
             }

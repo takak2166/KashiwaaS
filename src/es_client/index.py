@@ -102,7 +102,7 @@ def get_index_settings(replicas: int = 0) -> Dict[str, Any]:
                     "kuromoji_analyzer": {
                         "type": "custom",
                         "tokenizer": "kuromoji_tokenizer",
-                        "filter": ["kuromoji_baseform", "lowercase", "ja_stop"]
+                        "filter": ["kuromoji_baseform", "lowercase", "ja_stop", "kuromoji_part_of_speech"]
                     }
                 }
             }
