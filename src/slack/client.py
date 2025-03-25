@@ -2,6 +2,7 @@
 Slack API Client
 Provides a client for retrieving message data using the Slack API
 """
+import os
 import time
 from datetime import datetime
 from typing import Dict, Generator, List, Optional, Tuple, Any
@@ -43,6 +44,13 @@ class SlackClient:
         
         self.client = WebClient(token=self.token)
         logger.info(f"SlackClient initialized for channel {self.channel_id}")
+        
+        try:
+            channel_info = self.get_channel_info()
+            logger.info(f"Successfully validated channel: {channel_info.get('name', 'unknown')} ({self.channel_id})")
+        except Exception as e:
+            logger.warning(f"Channel validation failed: {e}")
+            logger.warning(f"This may cause issues with API calls that require a valid channel ID")
     
     def get_channel_info(self) -> Dict[str, Any]:
         """
@@ -244,4 +252,57 @@ class SlackClient:
             
         except SlackApiError as e:
             logger.error(f"Failed to post message: {e}")
+            raise
+    
+    def upload_file(
+        self,
+        file_path: str,
+        title: Optional[str] = None,
+        thread_ts: Optional[str] = None,
+        initial_comment: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Upload a file to the channel
+        
+        Args:
+            file_path: Path to the file to upload
+            title: Title for the file
+            thread_ts: Timestamp of the thread to attach the file to
+            initial_comment: Initial comment for the file
+            
+        Returns:
+            Dict[str, Any]: Upload result
+        """
+        if not os.path.exists(file_path):
+            error_msg = f"File not found: {file_path}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+        
+        try:
+            logger.info(f"Uploading file {file_path} to channel {self.channel_id}")
+            
+            params = {
+                "channels": [self.channel_id],
+                "file": file_path,
+            }
+            
+            if title:
+                params["title"] = title
+            
+            if thread_ts:
+                params["thread_ts"] = thread_ts
+            
+            if initial_comment:
+                params["initial_comment"] = initial_comment
+            
+            response = self.client.files_upload_v2(**params)
+            logger.info(f"File uploaded to channel {self.channel_id}: {file_path}")
+            return response
+            
+        except SlackApiError as e:
+            logger.error(f"Failed to upload file: {e}")
+            logger.error(f"Channel ID: {self.channel_id}")
+            logger.error(f"File path: {file_path}")
+            if hasattr(e, 'response') and 'error' in e.response:
+                logger.error(f"Error details: {e.response['error']}")
             raise

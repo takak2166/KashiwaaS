@@ -165,7 +165,9 @@ def bool_query(
         bool_params["filter"] = filter_
     
     return {
-        "bool": bool_params
+        "query": {
+            "bool": bool_params
+        }
     }
 
 
@@ -207,9 +209,13 @@ def build_search_query(
         Dict[str, Any]: Complete search query
     """
     search_query = {
-        "query": bool_query(must=query_parts),
         "size": size,
-        "from": from_
+        "from": from_,
+        "query": {
+            "bool": {
+                "must": query_parts
+            }
+        }
     }
     
     if sort:
@@ -240,7 +246,12 @@ def build_aggregation_query(
     }
     
     if query_parts:
-        agg_query["query"] = bool_query(must=query_parts)
+        # Create a bool query with must clause
+        agg_query["query"] = {
+            "bool": {
+                "must": query_parts
+            }
+        }
     
     return agg_query
 

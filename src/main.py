@@ -7,8 +7,15 @@ import sys
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+import os
+from pathlib import Path
+
+from src.analysis.daily import get_daily_stats
+from src.analysis.visualization import create_daily_report_charts, create_weekly_report_charts
 from src.es_client.client import ElasticsearchClient
 from src.es_client.index import get_index_name
+from src.kibana.capture import KibanaCapture
+from src.kibana.dashboard import KibanaDashboard
 from src.slack.client import SlackClient
 from src.slack.message import SlackMessage
 from src.utils.config import config
@@ -54,6 +61,9 @@ def parse_args():
     report_parser.add_argument(
         "--type", type=str, choices=["daily", "weekly"], default="daily",
         help="Report type (daily or weekly, default: daily)"
+    )
+    report_parser.add_argument(
+        "--channel", type=str, help="Channel ID to report on (default: value from environment variable)"
     )
     report_parser.add_argument(
         "--date", type=str, help="Target date for report (YYYY-MM-DD format, default: yesterday)"
@@ -250,6 +260,281 @@ def _store_messages_batch(
         logger.error(f"Failed to store messages in Elasticsearch: {e}")
 
 
+def generate_daily_report(
+    channel_id: Optional[str] = None,
+    target_date: Optional[datetime] = None,
+    dry_run: bool = False
+) -> None:
+    """
+    Generate daily report
+    
+    Args:
+        channel_id: Channel ID
+        target_date: Target date (default: yesterday)
+        dry_run: Whether to only display report without posting
+    """
+    # Initialize Slack client
+    client = SlackClient(channel_id=channel_id)
+    
+    # Get channel information
+    try:
+        channel_info = client.get_channel_info()
+        channel_name = channel_info.get("name", "unknown")
+        logger.info(f"Target channel: {channel_name} ({client.channel_id})")
+    except Exception as e:
+        logger.error(f"Failed to get channel info: {e}")
+        return
+    
+    # Set target_date to yesterday if not specified
+    if target_date is None:
+        current_time = get_current_time()
+        target_date = current_time - timedelta(days=1)
+    
+    logger.info(f"Generating daily report for {target_date.strftime('%Y-%m-%d')}")
+    
+    # Get daily stats
+    try:
+        stats = get_daily_stats(channel_name, target_date)
+        logger.info(f"Got daily stats: {stats['message_count']} messages, {stats['reaction_count']} reactions")
+    except Exception as e:
+        logger.error(f"Failed to get daily stats: {e}")
+        return
+    
+    # Create output directory
+    reports_dir = Path("reports") / channel_name
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate charts
+    try:
+        chart_paths = create_daily_report_charts(stats, str(reports_dir))
+        logger.info(f"Generated charts: {chart_paths}")
+    except Exception as e:
+        logger.error(f"Failed to generate charts: {e}")
+        chart_paths = {}
+    
+    # Capture Kibana dashboard if available
+    kibana_screenshot = None
+    try:
+        kibana = KibanaDashboard()
+        kibana_capture = KibanaCapture()
+        
+        # Capture dashboard
+        dashboard_path = str(reports_dir / f"kibana_daily_{stats['date']}.png")
+        kibana_capture.capture_dashboard(
+            "slack-daily-dashboard",
+            dashboard_path,
+            time_range="1d",
+            wait_for_render=10
+        )
+        kibana_screenshot = dashboard_path
+        logger.info(f"Captured Kibana dashboard to {kibana_screenshot}")
+    except Exception as e:
+        logger.error(f"Failed to capture Kibana dashboard: {e}")
+    
+    # Format report message
+    message = f"*Daily Report for {stats['date']}*\n\n"
+    message += f"• Total Messages: *{stats['message_count']}*\n"
+    message += f"• Total Reactions: *{stats['reaction_count']}*\n\n"
+    
+    if stats['user_stats']:
+        message += "*Top Active Users:*\n"
+        for user in stats['user_stats'][:5]:
+            message += f"• {user['username']}: {user['message_count']} messages\n"
+        message += "\n"
+    
+    if stats['top_reactions']:
+        message += "*Top Reactions:*\n"
+        for reaction in stats['top_reactions'][:5]:
+            message += f"• :{reaction['name']}: - {reaction['count']} times\n"
+        message += "\n"
+    
+    # Display report
+    logger.info(f"Daily Report:\n{message}")
+    
+    # Post to Slack if not dry run
+    if not dry_run:
+        try:
+            # Post message
+            post_result = client.post_message(message)
+            
+            # Upload charts
+            for chart_type, chart_path in chart_paths.items():
+                if chart_path:
+                    client.upload_file(
+                        chart_path,
+                        f"Daily {chart_type.capitalize()} Chart - {stats['date']}",
+                        post_result.get("ts")
+                    )
+            
+            # Upload Kibana screenshot
+            if kibana_screenshot:
+                client.upload_file(
+                    kibana_screenshot,
+                    f"Kibana Dashboard - {stats['date']}",
+                    post_result.get("ts")
+                )
+            
+            logger.info("Posted daily report to Slack")
+        except Exception as e:
+            logger.error(f"Failed to post daily report: {e}")
+    else:
+        logger.info("Dry run - not posting to Slack")
+
+
+def generate_weekly_report(
+    channel_id: Optional[str] = None,
+    end_date: Optional[datetime] = None,
+    dry_run: bool = False
+) -> None:
+    """
+    Generate weekly report
+    
+    Args:
+        channel_id: Channel ID
+        end_date: End date (default: yesterday)
+        dry_run: Whether to only display report without posting
+    """
+    # Initialize Slack client
+    client = SlackClient(channel_id=channel_id)
+    
+    # Get channel information
+    try:
+        channel_info = client.get_channel_info()
+        channel_name = channel_info.get("name", "unknown")
+        logger.info(f"Target channel: {channel_name} ({client.channel_id})")
+    except Exception as e:
+        logger.error(f"Failed to get channel info: {e}")
+        return
+    
+    # Set end_date to yesterday if not specified
+    if end_date is None:
+        current_time = get_current_time()
+        end_date = current_time - timedelta(days=1)
+    
+    # Calculate start_date (7 days before end_date)
+    start_date = end_date - timedelta(days=6)
+    
+    logger.info(f"Generating weekly report from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    
+    # Get daily stats for each day in the week
+    daily_stats = []
+    current_date = start_date
+    while current_date <= end_date:
+        try:
+            stats = get_daily_stats(channel_name, current_date)
+            daily_stats.append(stats)
+            logger.info(f"Got daily stats for {current_date.strftime('%Y-%m-%d')}: {stats['message_count']} messages")
+        except Exception as e:
+            logger.error(f"Failed to get daily stats for {current_date.strftime('%Y-%m-%d')}: {e}")
+        
+        current_date += timedelta(days=1)
+    
+    if not daily_stats:
+        logger.error("No data available for the specified period")
+        return
+    
+    # Create output directory
+    reports_dir = Path("reports") / channel_name
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate charts
+    try:
+        chart_paths = create_weekly_report_charts(daily_stats, str(reports_dir))
+        logger.info(f"Generated charts: {chart_paths}")
+    except Exception as e:
+        logger.error(f"Failed to generate charts: {e}")
+        chart_paths = {}
+    
+    # Capture Kibana dashboard if available
+    kibana_screenshot = None
+    try:
+        kibana = KibanaDashboard()
+        kibana_capture = KibanaCapture()
+        
+        # Capture dashboard
+        dashboard_path = str(reports_dir / f"kibana_weekly_{start_date.strftime('%Y-%m-%d')}_to_{end_date.strftime('%Y-%m-%d')}.png")
+        kibana_capture.capture_dashboard(
+            "5a5c8dc5-990d-4255-85d3-bae91a697a36",  # Kibana dashboard ID
+            dashboard_path,
+            time_range="7d",
+            wait_for_render=10
+        )
+        kibana_screenshot = dashboard_path
+        logger.info(f"Captured Kibana dashboard to {kibana_screenshot}")
+    except Exception as e:
+        logger.error(f"Failed to capture Kibana dashboard: {e}")
+    
+    # Calculate weekly totals
+    total_messages = sum(stats['message_count'] for stats in daily_stats)
+    total_reactions = sum(stats['reaction_count'] for stats in daily_stats)
+    
+    # Aggregate user stats
+    user_stats = {}
+    for stats in daily_stats:
+        for user in stats['user_stats']:
+            username = user['username']
+            count = user['message_count']
+            if username in user_stats:
+                user_stats[username] += count
+            else:
+                user_stats[username] = count
+    
+    # Sort users by message count
+    top_users = [
+        {"username": username, "message_count": count}
+        for username, count in sorted(user_stats.items(), key=lambda x: x[1], reverse=True)
+    ][:10]  # Top 10
+    
+    # Format report message
+    message = f"*Weekly Report ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})*\n\n"
+    message += f"• Total Messages: *{total_messages}*\n"
+    message += f"• Total Reactions: *{total_reactions}*\n"
+    message += f"• Daily Average: *{total_messages / len(daily_stats):.1f}* messages\n\n"
+    
+    if top_users:
+        message += "*Top Active Users:*\n"
+        for user in top_users[:5]:
+            message += f"• {user['username']}: {user['message_count']} messages\n"
+        message += "\n"
+    
+    # Add daily breakdown
+    message += "*Daily Breakdown:*\n"
+    for stats in daily_stats:
+        message += f"• {stats['date']}: {stats['message_count']} messages, {stats['reaction_count']} reactions\n"
+    
+    # Display report
+    logger.info(f"Weekly Report:\n{message}")
+    
+    # Post to Slack if not dry run
+    if not dry_run:
+        try:
+            # Post message
+            post_result = client.post_message(message)
+            
+            # Upload charts
+            for chart_type, chart_path in chart_paths.items():
+                if chart_path:
+                    client.upload_file(
+                        chart_path,
+                        f"Weekly {chart_type.capitalize()} Chart - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+                        post_result.get("ts")
+                    )
+            
+            # Upload Kibana screenshot
+            if kibana_screenshot:
+                client.upload_file(
+                    kibana_screenshot,
+                    f"Kibana Dashboard - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+                    post_result.get("ts")
+                )
+            
+            logger.info("Posted weekly report to Slack")
+        except Exception as e:
+            logger.error(f"Failed to post weekly report: {e}")
+    else:
+        logger.info("Dry run - not posting to Slack")
+
+
 def main():
     """Main execution function"""
     # Check configuration
@@ -284,8 +569,31 @@ def main():
         )
     
     elif args.command == "report":
-        # TODO: Implement report generation and posting
-        logger.info(f"Report command not implemented yet. Type: {args.type}")
+        # Parse date
+        target_date = None
+        if args.date:
+            try:
+                target_date = datetime.strptime(args.date, "%Y-%m-%d")
+            except ValueError:
+                logger.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD format.")
+                sys.exit(1)
+        
+        # Generate report
+        if args.type == "daily":
+            generate_daily_report(
+                channel_id=args.channel,
+                target_date=target_date,
+                dry_run=args.dry_run
+            )
+        elif args.type == "weekly":
+            generate_weekly_report(
+                channel_id=args.channel,
+                end_date=target_date,
+                dry_run=args.dry_run
+            )
+        else:
+            logger.error(f"Unknown report type: {args.type}")
+            sys.exit(1)
     
     else:
         logger.error("No command specified. Use --help for usage information.")

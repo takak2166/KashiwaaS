@@ -260,19 +260,27 @@ class ElasticsearchClient:
         Args:
             index_name: Name of the index to search
             query: Elasticsearch query
-            size: Number of results to return
-            from_: Starting offset
+            size: Number of results to return (ignored if size is in query)
+            from_: Starting offset (ignored if from is in query)
             
         Returns:
             Dict[str, Any]: Search results
         """
         try:
-            response = self.client.search(
-                index=index_name,
-                body=query,
-                size=size,
-                from_=from_
-            )
+            # Check if size or from are already in the query
+            params = {"index": index_name}
+            
+            # Use body parameter instead of directly passing query
+            params["body"] = query
+            
+            # Only add size and from if not already in query
+            if "size" not in query:
+                params["size"] = size
+            
+            if "from" not in query:
+                params["from_"] = from_
+            
+            response = self.client.search(**params)
             
             return response
             

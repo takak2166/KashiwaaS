@@ -28,6 +28,14 @@ services:
       - "5601:5601"
     depends_on:
       - elasticsearch
+  
+  chrome:
+    image: selenium/standalone-chrome:latest
+    ports:
+      - "4444:4444"
+    environment:
+      - SE_NODE_MAX_SESSIONS=4
+    shm_size: '2g'
 
 volumes:
   es_data:
