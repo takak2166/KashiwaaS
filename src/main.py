@@ -318,10 +318,13 @@ def generate_daily_report(
         kibana = KibanaDashboard()
         kibana_capture = KibanaCapture()
         
+        # ダッシュボードIDを変数として定義
+        DAILY_DASHBOARD_ID = os.getenv("KIBANA_DAILY_DASHBOARD_ID", "slack-daily-dashboard")
+        
         # Capture dashboard
         dashboard_path = str(reports_dir / f"kibana_daily_{stats['date']}.png")
         kibana_capture.capture_dashboard(
-            "slack-daily-dashboard",
+            DAILY_DASHBOARD_ID,
             dashboard_path,
             time_range="1d",
             wait_for_render=10
@@ -451,10 +454,13 @@ def generate_weekly_report(
         kibana = KibanaDashboard()
         kibana_capture = KibanaCapture()
         
+        # ダッシュボードIDを変数として定義
+        WEEKLY_DASHBOARD_ID = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", "slack-weekly-dashboard")
+        
         # Capture dashboard
         dashboard_path = str(reports_dir / f"kibana_weekly_{start_date.strftime('%Y-%m-%d')}_to_{end_date.strftime('%Y-%m-%d')}.png")
         kibana_capture.capture_dashboard(
-            "5a5c8dc5-990d-4255-85d3-bae91a697a36",  # Kibana dashboard ID
+            WEEKLY_DASHBOARD_ID,
             dashboard_path,
             time_range="7d",
             wait_for_render=10
@@ -491,17 +497,6 @@ def generate_weekly_report(
     message += f"• Total Reactions: *{total_reactions}*\n"
     message += f"• Daily Average: *{total_messages / len(daily_stats):.1f}* messages\n\n"
     
-    if top_users:
-        message += "*Top Active Users:*\n"
-        for user in top_users[:5]:
-            message += f"• {user['username']}: {user['message_count']} messages\n"
-        message += "\n"
-    
-    # Add daily breakdown
-    message += "*Daily Breakdown:*\n"
-    for stats in daily_stats:
-        message += f"• {stats['date']}: {stats['message_count']} messages, {stats['reaction_count']} reactions\n"
-    
     # Display report
     logger.info(f"Weekly Report:\n{message}")
     
@@ -516,16 +511,14 @@ def generate_weekly_report(
                 if chart_path:
                     client.upload_file(
                         chart_path,
-                        f"Weekly {chart_type.capitalize()} Chart - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
-                        post_result.get("ts")
+                        f"Weekly {chart_type.capitalize()} Chart - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
                     )
             
             # Upload Kibana screenshot
             if kibana_screenshot:
                 client.upload_file(
                     kibana_screenshot,
-                    f"Kibana Dashboard - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
-                    post_result.get("ts")
+                    f"Kibana Dashboard - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
                 )
             
             logger.info("Posted weekly report to Slack")

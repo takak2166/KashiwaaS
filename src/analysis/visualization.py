@@ -20,16 +20,16 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def create_hourly_distribution_chart(
-    hourly_data: Dict[int, int],
-    title: str = "Hourly Message Distribution",
-    figsize: Tuple[int, int] = (10, 6)
+def create_reaction_pie_chart(
+    reaction_data: List[Dict[str, Any]],
+    title: str = "Reaction Distribution",
+    figsize: Tuple[int, int] = (10, 10)
 ) -> Figure:
     """
-    Create hourly distribution chart
+    Create a pie chart of reaction distribution
     
     Args:
-        hourly_data: Hourly distribution data (hour -> count)
+        reaction_data: Reaction data (list of dicts with 'name' and 'count')
         title: Chart title
         figsize: Figure size
         
@@ -40,11 +40,79 @@ def create_hourly_distribution_chart(
     fig, ax = plt.subplots(figsize=figsize)
     
     # Prepare data
-    hours = list(range(24))
-    counts = [hourly_data.get(hour, 0) for hour in hours]
+    names = [f":{item['name']}:" for item in reaction_data]
+    counts = [item['count'] for item in reaction_data]
+    
+    # Create pie chart
+    wedges, texts, autotexts = ax.pie(
+        counts,
+        autopct='%1.1f%%',
+        textprops={'color': "w"},
+        shadow=True,
+        startangle=90
+    )
+    
+    # Equal aspect ratio ensures that pie is drawn as a circle
+    ax.axis('equal')
+    
+    # Add legend
+    ax.legend(
+        wedges,
+        [f"{name} ({count})" for name, count in zip(names, counts)],
+        title="Reactions",
+        loc="center left",
+        bbox_to_anchor=(1, 0, 0.5, 1)
+    )
+    
+    # Set title
+    ax.set_title(title)
+    
+    # Tight layout
+    fig.tight_layout()
+    
+    return fig
+
+
+def create_hourly_distribution_chart(
+    hourly_data: Dict[int, int],
+    title: str = "Hourly Message Distribution",
+    figsize: Tuple[int, int] = (10, 6),
+    group_by: int = 1  # 1 for hourly, 2 for every 2 hours, etc.
+) -> Figure:
+    """
+    Create hourly distribution chart as bar chart
+    
+    Args:
+        hourly_data: Hourly distribution data (hour -> count)
+        title: Chart title
+        figsize: Figure size
+        group_by: Group hours by this number (1 for hourly, 2 for every 2 hours, etc.)
+        
+    Returns:
+        Figure: Matplotlib figure
+    """
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Prepare data
+    if group_by > 1:
+        # Group hours
+        grouped_data = {}
+        for hour in range(0, 24, group_by):
+            group_count = sum(hourly_data.get(h, 0) for h in range(hour, min(hour + group_by, 24)))
+            grouped_data[hour] = group_count
+        
+        hours = list(range(0, 24, group_by))
+        counts = [grouped_data.get(hour, 0) for hour in hours]
+        labels = [f'{h:02d}:00-{(h+group_by)%24:02d}:00' for h in hours]
+    else:
+        # Use hourly data as is
+        hours = list(range(24))
+        counts = [hourly_data.get(hour, 0) for hour in hours]
+        labels = [f'{h:02d}:00' for h in hours]
     
     # Create bar chart
-    bars = ax.bar(hours, counts, color='#007bff', alpha=0.7)
+    bars = ax.bar(range(len(hours)), counts, color='#007bff', alpha=0.7)
     
     # Add value labels on top of bars
     for bar in bars:
@@ -60,13 +128,161 @@ def create_hourly_distribution_chart(
             )
     
     # Set labels and title
-    ax.set_xlabel('Hour of Day')
+    ax.set_xlabel('Time of Day')
     ax.set_ylabel('Number of Messages')
     ax.set_title(title)
     
     # Set x-axis ticks
-    ax.set_xticks(hours)
-    ax.set_xticklabels([f'{h:02d}:00' for h in hours], rotation=45)
+    ax.set_xticks(range(len(hours)))
+    ax.set_xticklabels(labels, rotation=45)
+    
+    # Set y-axis to start at 0
+    ax.set_ylim(bottom=0)
+    
+    # Add grid
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    # Tight layout
+    fig.tight_layout()
+    
+    return fig
+
+
+def create_hourly_line_chart(
+    hourly_data: Dict[int, int],
+    title: str = "Hourly Message Distribution",
+    figsize: Tuple[int, int] = (10, 6),
+    group_by: int = 1  # 1 for hourly, 2 for every 2 hours, etc.
+) -> Figure:
+    """
+    Create hourly distribution chart as line chart
+    
+    Args:
+        hourly_data: Hourly distribution data (hour -> count)
+        title: Chart title
+        figsize: Figure size
+        group_by: Group hours by this number (1 for hourly, 2 for every 2 hours, etc.)
+        
+    Returns:
+        Figure: Matplotlib figure
+    """
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Prepare data
+    if group_by > 1:
+        # Group hours
+        grouped_data = {}
+        for hour in range(0, 24, group_by):
+            group_count = sum(hourly_data.get(h, 0) for h in range(hour, min(hour + group_by, 24)))
+            grouped_data[hour] = group_count
+        
+        hours = list(range(0, 24, group_by))
+        counts = [grouped_data.get(hour, 0) for hour in hours]
+        labels = [f'{h:02d}:00-{(h+group_by)%24:02d}:00' for h in hours]
+    else:
+        # Use hourly data as is
+        hours = list(range(24))
+        counts = [hourly_data.get(hour, 0) for hour in hours]
+        labels = [f'{h:02d}:00' for h in hours]
+    
+    # Create line chart
+    x_values = range(len(hours))
+    ax.plot(x_values, counts, marker='o', linestyle='-', color='#007bff', markersize=8)
+    
+    # Add value labels above points
+    for i, count in enumerate(counts):
+        if count > 0:
+            ax.text(
+                i,
+                count + max(counts) * 0.02,
+                f'{int(count)}',
+                ha='center',
+                va='bottom',
+                fontsize=9
+            )
+    
+    # Set labels and title
+    ax.set_xlabel('Time of Day')
+    ax.set_ylabel('Number of Messages')
+    ax.set_title(title)
+    
+    # Set x-axis ticks
+    ax.set_xticks(x_values)
+    ax.set_xticklabels(labels, rotation=45)
+    
+    # Set y-axis to start at 0
+    ax.set_ylim(bottom=0)
+    
+    # Add grid
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    # Tight layout
+    fig.tight_layout()
+    
+    return fig
+
+
+def create_weekly_hourly_line_chart(
+    daily_stats: List[Dict[str, Any]],
+    title: str = "Message Activity Over Week",
+    figsize: Tuple[int, int] = (15, 6)
+) -> Figure:
+    """
+    Create a line chart showing message activity for each hour over a 7-day period (168 hours)
+    
+    Args:
+        daily_stats: List of daily statistics
+        title: Chart title
+        figsize: Figure size
+        
+    Returns:
+        Figure: Matplotlib figure
+    """
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Sort daily stats by date
+    sorted_stats = sorted(daily_stats, key=lambda x: x['date'])
+    
+    # Prepare data
+    all_hours = []
+    all_counts = []
+    all_labels = []
+    
+    # For each day
+    for day_index, stats in enumerate(sorted_stats):
+        date = stats['date']
+        hourly_data = stats['hourly_distribution']
+        
+        # For each hour in the day
+        for hour in range(24):
+            count = hourly_data.get(hour, 0)
+            all_hours.append(day_index * 24 + hour)
+            all_counts.append(count)
+            
+            # Create label for every 6 hours
+            if hour % 6 == 0:
+                all_labels.append(f"{date} {hour:02d}:00")
+            else:
+                all_labels.append("")
+    
+    # Create line chart
+    ax.plot(all_hours, all_counts, marker='o', linestyle='-', color='#007bff', markersize=4)
+    
+    # Add day separators
+    for day in range(1, len(sorted_stats)):
+        ax.axvline(x=day * 24, color='gray', linestyle='--', alpha=0.5)
+    
+    # Set labels and title
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Number of Messages')
+    ax.set_title(title)
+    
+    # Set x-axis ticks
+    tick_positions = [i for i, label in enumerate(all_labels) if label]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels([all_labels[i] for i in tick_positions], rotation=45)
     
     # Set y-axis to start at 0
     ax.set_ylim(bottom=0)
@@ -293,36 +509,9 @@ def create_daily_report_charts(
     Returns:
         Dict[str, str]: Chart paths
     """
-    # Create hourly distribution chart
-    hourly_fig = create_hourly_distribution_chart(
-        stats['hourly_distribution'],
-        title=f"Hourly Message Distribution ({stats['date']})"
-    )
-    hourly_path = save_figure(hourly_fig, f"{output_dir}/hourly_{stats['date']}")
-    
-    # Create reaction chart if there are reactions
-    reaction_path = None
-    if stats['top_reactions']:
-        reaction_fig = create_reaction_chart(
-            stats['top_reactions'],
-            title=f"Top Reactions ({stats['date']})"
-        )
-        reaction_path = save_figure(reaction_fig, f"{output_dir}/reactions_{stats['date']}")
-    
-    # Create user activity chart if there are users
-    user_path = None
-    if stats['user_stats']:
-        user_fig = create_user_activity_chart(
-            stats['user_stats'],
-            title=f"Top Active Users ({stats['date']})"
-        )
-        user_path = save_figure(user_fig, f"{output_dir}/users_{stats['date']}")
-    
-    return {
-        "hourly": hourly_path,
-        "reactions": reaction_path,
-        "users": user_path
-    }
+    # For daily reports, only include Total Messages and Total Reactions
+    # No charts needed as per requirements
+    return {}
 
 
 def create_weekly_report_charts(
@@ -339,17 +528,16 @@ def create_weekly_report_charts(
     Returns:
         Dict[str, str]: Chart paths
     """
-    # Prepare data for daily activity chart
-    daily_data = {stats['date']: stats['message_count'] for stats in daily_stats}
-    
-    # Create daily activity chart
+    # Get date range
     start_date = min(daily_stats, key=lambda x: x['date'])['date']
     end_date = max(daily_stats, key=lambda x: x['date'])['date']
-    daily_fig = create_daily_activity_chart(
-        daily_data,
-        title=f"Daily Message Activity ({start_date} to {end_date})"
+    
+    # Create weekly hourly line chart (168 hours)
+    weekly_hourly_fig = create_weekly_hourly_line_chart(
+        daily_stats,
+        title=f"Message Activity Over Week ({start_date} to {end_date})"
     )
-    daily_path = save_figure(daily_fig, f"{output_dir}/daily_{start_date}_to_{end_date}")
+    weekly_hourly_path = save_figure(weekly_hourly_fig, f"{output_dir}/hourly_{start_date}_to_{end_date}")
     
     # Aggregate reaction data
     reaction_counts = {}
@@ -368,43 +556,17 @@ def create_weekly_report_charts(
         for name, count in sorted(reaction_counts.items(), key=lambda x: x[1], reverse=True)
     ][:10]  # Top 10
     
-    # Create reaction chart if there are reactions
-    reaction_path = None
+    # Create reaction pie chart if there are reactions
+    reaction_pie_path = None
     if top_reactions:
-        reaction_fig = create_reaction_chart(
+        # Pie chart for reactions
+        reaction_pie_fig = create_reaction_pie_chart(
             top_reactions,
-            title=f"Top Reactions ({start_date} to {end_date})"
+            title=f"Reaction Distribution ({start_date} to {end_date})"
         )
-        reaction_path = save_figure(reaction_fig, f"{output_dir}/reactions_{start_date}_to_{end_date}")
-    
-    # Aggregate user data
-    user_counts = {}
-    for stats in daily_stats:
-        for user in stats['user_stats']:
-            username = user['username']
-            count = user['message_count']
-            if username in user_counts:
-                user_counts[username] += count
-            else:
-                user_counts[username] = count
-    
-    # Sort users by count
-    top_users = [
-        {"username": username, "message_count": count}
-        for username, count in sorted(user_counts.items(), key=lambda x: x[1], reverse=True)
-    ][:10]  # Top 10
-    
-    # Create user activity chart if there are users
-    user_path = None
-    if top_users:
-        user_fig = create_user_activity_chart(
-            top_users,
-            title=f"Top Active Users ({start_date} to {end_date})"
-        )
-        user_path = save_figure(user_fig, f"{output_dir}/users_{start_date}_to_{end_date}")
+        reaction_pie_path = save_figure(reaction_pie_fig, f"{output_dir}/reaction_pie_{start_date}_to_{end_date}")
     
     return {
-        "daily": daily_path,
-        "reactions": reaction_path,
-        "users": user_path
+        "hourly": weekly_hourly_path,
+        "reaction_pie": reaction_pie_path
     }
