@@ -14,6 +14,7 @@ from src.slack.message import SlackMessage
 from src.utils.config import config
 from src.utils.date_utils import convert_to_timestamp
 from src.utils.logger import get_logger
+from src.utils.retry import retry_with_backoff, is_rate_limit_error, is_temporary_error
 
 logger = get_logger(__name__)
 
@@ -52,6 +53,14 @@ class SlackClient:
             logger.warning(f"Channel validation failed: {e}")
             logger.warning(f"This may cause issues with API calls that require a valid channel ID")
     
+    @retry_with_backoff(
+        max_retries=3,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying get_channel_info after error: {e}"
+        )
+    )
     def get_channel_info(self) -> Dict[str, Any]:
         """
         Get channel information
@@ -117,8 +126,8 @@ class SlackClient:
                 if cursor:
                     params["cursor"] = cursor
                 
-                # API request
-                response = self.client.conversations_history(**params)
+                # API request with retry
+                response = self._fetch_history_with_retry(params)
                 messages = response.get("messages", [])
                 
                 # Process retrieved messages
@@ -142,21 +151,45 @@ class SlackClient:
                 if not cursor:
                     break
                 
-                # Wait a bit to handle rate limiting
+                # Wait a bit between requests to be nice to the API
                 time.sleep(0.5)
                 
             except SlackApiError as e:
-                if e.response["error"] == "ratelimited":
-                    # If rate limited, wait and retry
-                    retry_after = int(e.response.headers.get("Retry-After", 1))
-                    logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
-                    time.sleep(retry_after)
-                    continue
-                else:
-                    logger.error(f"Failed to fetch messages: {e}")
-                    raise
+                logger.error(f"Failed to fetch messages: {e}")
+                raise
         
         logger.info(f"Fetched {message_count} messages and {thread_message_count} thread replies")
+    
+    @retry_with_backoff(
+        max_retries=5,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying conversations_history after error: {e}"
+        )
+    )
+    def _fetch_history_with_retry(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fetch conversation history with retry
+        
+        Args:
+            params: Parameters for the API call
+            
+        Returns:
+            Dict[str, Any]: API response
+        """
+        try:
+            return self.client.conversations_history(**params)
+        except SlackApiError as e:
+            # Handle rate limiting explicitly
+            if is_rate_limit_error(e):
+                retry_after = int(e.response.headers.get("Retry-After", 1))
+                logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
+                time.sleep(retry_after)
+                # This will be retried by the decorator
+            raise
     
     def _get_thread_replies(self, thread_ts: str) -> List[Dict[str, Any]]:
         """
@@ -168,11 +201,11 @@ class SlackClient:
         Returns:
             List[Dict[str, Any]]: List of thread reply messages
         """
-        try:
-            all_replies = []
-            cursor = None
-            
-            while True:
+        all_replies = []
+        cursor = None
+        
+        while True:
+            try:
                 params = {
                     "channel": self.channel_id,
                     "ts": thread_ts,
@@ -182,7 +215,8 @@ class SlackClient:
                 if cursor:
                     params["cursor"] = cursor
                 
-                response = self.client.conversations_replies(**params)
+                # API request with retry
+                response = self._fetch_replies_with_retry(params)
                 replies = response.get("messages", [])
                 
                 # Skip the first message as it's the parent message
@@ -196,22 +230,57 @@ class SlackClient:
                 if not cursor:
                     break
                 
-                # Wait a bit to handle rate limiting
+                # Wait a bit between requests to be nice to the API
                 time.sleep(0.5)
+                
+            except SlackApiError as e:
+                logger.error(f"Failed to fetch thread replies: {e}")
+                # Return what we have so far instead of empty list
+                return all_replies
+        
+        return all_replies
+    
+    @retry_with_backoff(
+        max_retries=5,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying conversations_replies after error: {e}"
+        )
+    )
+    def _fetch_replies_with_retry(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fetch conversation replies with retry
+        
+        Args:
+            params: Parameters for the API call
             
-            return all_replies
-            
+        Returns:
+            Dict[str, Any]: API response
+        """
+        try:
+            return self.client.conversations_replies(**params)
         except SlackApiError as e:
-            logger.error(f"Failed to fetch thread replies: {e}")
-            if e.response["error"] == "ratelimited":
-                # If rate limited, wait and retry
+            # Handle rate limiting explicitly
+            if is_rate_limit_error(e):
                 retry_after = int(e.response.headers.get("Retry-After", 1))
                 logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
                 time.sleep(retry_after)
-                return self._get_thread_replies(thread_ts)
-            else:
-                return []
+                # This will be retried by the decorator
+            raise
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying post_message after error: {e}"
+        )
+    )
     def post_message(
         self,
         text: str,
@@ -252,8 +321,24 @@ class SlackClient:
             
         except SlackApiError as e:
             logger.error(f"Failed to post message: {e}")
+            # Handle rate limiting explicitly
+            if is_rate_limit_error(e):
+                retry_after = int(e.response.headers.get("Retry-After", 1))
+                logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
+                time.sleep(retry_after)
+                # This will be retried by the decorator
             raise
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying upload_file after error: {e}"
+        )
+    )
     def upload_file(
         self,
         file_path: str,
@@ -305,4 +390,10 @@ class SlackClient:
             logger.error(f"File path: {file_path}")
             if hasattr(e, 'response') and 'error' in e.response:
                 logger.error(f"Error details: {e.response['error']}")
+            # Handle rate limiting explicitly
+            if is_rate_limit_error(e):
+                retry_after = int(e.response.headers.get("Retry-After", 1))
+                logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
+                time.sleep(retry_after)
+                # This will be retried by the decorator
             raise

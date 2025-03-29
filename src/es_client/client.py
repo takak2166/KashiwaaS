@@ -3,16 +3,46 @@ Elasticsearch Client
 Provides a client for interacting with Elasticsearch
 """
 import json
+import time
 from typing import Any, Dict, List, Optional, Union
 
 from elasticsearch import Elasticsearch, helpers
-from elasticsearch.exceptions import NotFoundError
+from elasticsearch.exceptions import NotFoundError, ConnectionError, ConnectionTimeout, TransportError
 
 from src.slack.message import SlackMessage
 from src.utils.config import config
 from src.utils.logger import get_logger
+from src.utils.retry import retry_with_backoff, is_temporary_error
 
 logger = get_logger(__name__)
+
+
+def is_es_temporary_error(exception: Exception) -> bool:
+    """
+    Check if an Elasticsearch exception is temporary and worth retrying
+    
+    Args:
+        exception: The exception to check
+        
+    Returns:
+        bool: True if the exception is likely temporary
+    """
+    # Check for connection errors
+    if isinstance(exception, (ConnectionError, ConnectionTimeout)):
+        return True
+    
+    # Check for transport errors with 5xx status codes
+    if isinstance(exception, TransportError) and hasattr(exception, 'status_code'):
+        if 500 <= exception.status_code < 600:
+            return True
+    
+    # Check for error message containing temporary error indicators
+    error_str = str(exception).lower()
+    temporary_indicators = [
+        'timeout', 'connection', 'network', 'too many requests',
+        'service unavailable', 'internal server error', 'overloaded'
+    ]
+    return any(indicator in error_str for indicator in temporary_indicators)
 
 
 class ElasticsearchClient:
@@ -55,6 +85,15 @@ class ElasticsearchClient:
             logger.error(f"Failed to connect to Elasticsearch at {self.host}")
             raise ConnectionError(f"Could not connect to Elasticsearch at {self.host}")
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying create_index after error: {e}"
+        )
+    )
     def create_index(self, index_name: str, settings: Optional[Dict[str, Any]] = None) -> bool:
         """
         Create an index with optional settings
@@ -83,8 +122,21 @@ class ElasticsearchClient:
             
         except Exception as e:
             logger.error(f"Failed to create index {index_name}: {e}")
+            # Don't retry if the index already exists with a different error
+            if "resource_already_exists_exception" in str(e):
+                logger.info(f"Index {index_name} already exists (from exception)")
+                return True
             return False
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying delete_index after error: {e}"
+        )
+    )
     def delete_index(self, index_name: str) -> bool:
         """
         Delete an index
@@ -106,8 +158,21 @@ class ElasticsearchClient:
             
         except Exception as e:
             logger.error(f"Failed to delete index {index_name}: {e}")
+            # Don't retry if the index doesn't exist
+            if "index_not_found_exception" in str(e):
+                logger.warning(f"Index {index_name} not found (from exception)")
+                return False
             return False
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying create_template after error: {e}"
+        )
+    )
     def create_template(self, name: str, template: Dict[str, Any]) -> bool:
         """
         Create or update an index template
@@ -132,6 +197,15 @@ class ElasticsearchClient:
             logger.error(f"Failed to create template {name}: {e}")
             return False
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying index_document after error: {e}"
+        )
+    )
     def index_document(
         self,
         index_name: str,
@@ -163,6 +237,15 @@ class ElasticsearchClient:
             logger.error(f"Failed to index document in {index_name}: {e}")
             return False
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying bulk_index after error: {e}"
+        )
+    )
     def bulk_index(
         self,
         index_name: str,
@@ -209,6 +292,15 @@ class ElasticsearchClient:
             logger.error(f"Failed to bulk index documents in {index_name}: {e}")
             return {"success": 0, "failed": len(documents)}
     
+    @retry_with_backoff(
+        max_retries=2,  # Lower retry count since individual bulk operations already have retries
+        initial_backoff=2.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying index_slack_messages after error: {e}"
+        )
+    )
     def index_slack_messages(
         self,
         channel_name: str,
@@ -238,15 +330,30 @@ class ElasticsearchClient:
         
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i + batch_size]
-            result = self.bulk_index(index_name, batch, id_field="timestamp")
-            
-            total_success += result.get("success", 0)
-            total_failed += result.get("failed", 0)
-            
-            logger.info(f"Indexed batch {i // batch_size + 1}/{(len(documents) - 1) // batch_size + 1}")
+            try:
+                result = self.bulk_index(index_name, batch, id_field="timestamp")
+                
+                total_success += result.get("success", 0)
+                total_failed += result.get("failed", 0)
+                
+                logger.info(f"Indexed batch {i // batch_size + 1}/{(len(documents) - 1) // batch_size + 1}")
+            except Exception as e:
+                logger.error(f"Failed to index batch {i // batch_size + 1}: {e}")
+                total_failed += len(batch)
+                # Re-raise to allow retry decorator to handle it
+                raise
         
         return {"success": total_success, "failed": total_failed}
     
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        should_retry_fn=is_es_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying search after error: {e}"
+        )
+    )
     def search(
         self,
         index_name: str,
@@ -286,4 +393,8 @@ class ElasticsearchClient:
             
         except Exception as e:
             logger.error(f"Search failed in {index_name}: {e}")
+            # Don't retry if the index doesn't exist
+            if "index_not_found_exception" in str(e):
+                logger.warning(f"Index {index_name} not found (from exception)")
+                return {"error": f"Index {index_name} not found", "status": "not_found"}
             return {"error": str(e)}
