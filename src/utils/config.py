@@ -27,6 +27,15 @@ class SlackConfig:
     """Slack API configuration"""
     api_token: str
     channel_id: str
+    alert_channel_id: Optional[str] = None
+
+
+@dataclass
+class AlertConfig:
+    """Alert configuration"""
+    min_level: str = "WARNING"  # INFO, WARNING, ERROR, CRITICAL
+    throttle_seconds: int = 300
+    max_per_hour: int = 10
 
 
 @dataclass
@@ -43,6 +52,7 @@ class AppConfig:
     slack: SlackConfig
     elasticsearch: ElasticsearchConfig
     timezone: str
+    alert: AlertConfig
 
 
 def load_config() -> AppConfig:
@@ -58,6 +68,7 @@ def load_config() -> AppConfig:
     # Load Slack configuration
     slack_token = os.getenv("SLACK_API_TOKEN")
     slack_channel = os.getenv("SLACK_CHANNEL_ID")
+    slack_alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID")
     
     if not slack_token:
         raise ValueError("SLACK_API_TOKEN environment variable is required")
@@ -69,6 +80,11 @@ def load_config() -> AppConfig:
     es_user = os.getenv("ELASTICSEARCH_USER")
     es_password = os.getenv("ELASTICSEARCH_PASSWORD")
     
+    # Load Alert configuration
+    alert_min_level = os.getenv("ALERT_MIN_LEVEL", "WARNING")
+    alert_throttle_seconds = int(os.getenv("ALERT_THROTTLE_SECONDS", "300"))
+    alert_max_per_hour = int(os.getenv("ALERT_MAX_PER_HOUR", "10"))
+    
     # Timezone configuration
     timezone = os.getenv("TIMEZONE", "Asia/Tokyo")
     
@@ -76,6 +92,7 @@ def load_config() -> AppConfig:
         slack=SlackConfig(
             api_token=slack_token,
             channel_id=slack_channel,
+            alert_channel_id=slack_alert_channel,
         ),
         elasticsearch=ElasticsearchConfig(
             host=es_host,
@@ -83,6 +100,11 @@ def load_config() -> AppConfig:
             password=es_password,
         ),
         timezone=timezone,
+        alert=AlertConfig(
+            min_level=alert_min_level,
+            throttle_seconds=alert_throttle_seconds,
+            max_per_hour=alert_max_per_hour,
+        ),
     )
 
 

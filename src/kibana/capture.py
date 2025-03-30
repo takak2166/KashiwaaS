@@ -3,6 +3,7 @@ Kibana Dashboard Capture Module
 Provides functionality for capturing Kibana dashboards using Selenium
 """
 import os
+import sys
 import time
 from typing import Optional, List, Dict, Any
 
@@ -13,6 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 
+from src.bot.alerter import alert, AlertLevel
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -76,9 +78,28 @@ class KibanaCapture:
             )
             return driver
         except Exception as e:
-            logger.error(f"Failed to create WebDriver: {e}")
-            logger.warning("Kibana dashboard capture will be skipped")
-            return None
+            # Log full error with stack trace
+            error_msg = f"Failed to create WebDriver: {e}"
+            logger.error(error_msg)
+            
+            # Create a simplified error message for the alert (without stack trace)
+            simple_error = str(e).split('\n')[0]  # Get only the first line
+            alert_msg = f"Failed to create WebDriver: {simple_error}"
+            
+            # Send alert
+            alert(
+                message=alert_msg,
+                level=AlertLevel.CRITICAL,
+                title="CRITICAL: WebDriver Creation Failed - Kibana Dashboard Capture Impossible",
+                details={
+                    "selenium_host": self.selenium_host,
+                    "error_type": e.__class__.__name__
+                }
+            )
+            
+            # Exit program
+            logger.critical("Exiting program due to WebDriver creation failure")
+            sys.exit(1)
     
     def _login_if_needed(self, driver: webdriver.Remote) -> bool:
         """
@@ -169,11 +190,8 @@ class KibanaCapture:
         
         driver = None
         try:
-            # Create WebDriver
+            # Create WebDriver - will exit program if it fails
             driver = self._create_driver()
-            if driver is None:
-                logger.warning(f"WebDriver creation failed, skipping dashboard capture for {dashboard_id}")
-                return False
             
             # Build dashboard URL
             dashboard_url = f"{self.kibana_host}/app/dashboards#/view/{dashboard_id}"
@@ -207,7 +225,26 @@ class KibanaCapture:
             
             return True
         except Exception as e:
-            logger.error(f"Failed to capture dashboard {dashboard_id}: {e}")
+            # Log full error with stack trace
+            error_msg = f"Failed to capture dashboard {dashboard_id}: {e}"
+            logger.error(error_msg)
+            
+            # Create a simplified error message for the alert (without stack trace)
+            simple_error = str(e).split('\n')[0]  # Get only the first line
+            alert_msg = f"Failed to capture dashboard {dashboard_id}: {simple_error}"
+            
+            # Send alert
+            alert(
+                message=alert_msg,
+                level=AlertLevel.ERROR,
+                title="Dashboard Capture Failed",
+                details={
+                    "dashboard_id": dashboard_id,
+                    "kibana_host": self.kibana_host,
+                    "error_type": e.__class__.__name__
+                }
+            )
+            
             return False
         finally:
             # Close WebDriver
@@ -238,7 +275,7 @@ class KibanaCapture:
         """
         driver = None
         try:
-            # Create WebDriver
+            # Create WebDriver - will exit program if it fails
             driver = self._create_driver()
             
             # Build visualization URL
@@ -285,7 +322,26 @@ class KibanaCapture:
                 
                 return True
         except Exception as e:
-            logger.error(f"Failed to capture visualization {visualization_id}: {e}")
+            # Log full error with stack trace
+            error_msg = f"Failed to capture visualization {visualization_id}: {e}"
+            logger.error(error_msg)
+            
+            # Create a simplified error message for the alert (without stack trace)
+            simple_error = str(e).split('\n')[0]  # Get only the first line
+            alert_msg = f"Failed to capture visualization {visualization_id}: {simple_error}"
+            
+            # Send alert
+            alert(
+                message=alert_msg,
+                level=AlertLevel.ERROR,
+                title="Visualization Capture Failed",
+                details={
+                    "visualization_id": visualization_id,
+                    "kibana_host": self.kibana_host,
+                    "error_type": e.__class__.__name__
+                }
+            )
+            
             return False
         finally:
             # Close WebDriver
@@ -313,7 +369,7 @@ class KibanaCapture:
         """
         driver = None
         try:
-            # Create WebDriver
+            # Create WebDriver - will exit program if it fails
             driver = self._create_driver()
             
             # Build dashboard URL
@@ -371,7 +427,26 @@ class KibanaCapture:
             
             return panel_screenshots
         except Exception as e:
-            logger.error(f"Failed to capture dashboard panels for {dashboard_id}: {e}")
+            # Log full error with stack trace
+            error_msg = f"Failed to capture dashboard panels for {dashboard_id}: {e}"
+            logger.error(error_msg)
+            
+            # Create a simplified error message for the alert (without stack trace)
+            simple_error = str(e).split('\n')[0]  # Get only the first line
+            alert_msg = f"Failed to capture dashboard panels for {dashboard_id}: {simple_error}"
+            
+            # Send alert
+            alert(
+                message=alert_msg,
+                level=AlertLevel.ERROR,
+                title="Dashboard Panels Capture Failed",
+                details={
+                    "dashboard_id": dashboard_id,
+                    "kibana_host": self.kibana_host,
+                    "error_type": e.__class__.__name__
+                }
+            )
+            
             return {}
         finally:
             # Close WebDriver

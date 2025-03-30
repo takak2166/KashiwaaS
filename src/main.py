@@ -5,13 +5,14 @@ This module serves as the entry point for the application.
 import argparse
 import sys
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import os
 from pathlib import Path
 
 from src.analysis.daily import get_daily_stats
 from src.analysis.visualization import create_daily_report_charts, create_weekly_report_charts
+from src.bot.alerter import alert, AlertLevel
 from src.es_client.client import ElasticsearchClient
 from src.es_client.index import get_index_name
 from src.kibana.capture import KibanaCapture
@@ -120,7 +121,18 @@ def fetch_messages(
         channel_name = channel_info.get("name", "unknown")
         logger.info(f"Target channel: {channel_name} ({client.channel_id})")
     except Exception as e:
-        logger.error(f"Failed to get channel info: {e}")
+        error_msg = f"Failed to get channel info: {e}"
+        logger.error(error_msg)
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Channel Info Error",
+            details={
+                "channel_id": client.channel_id,
+                "error": str(e)
+            }
+        )
         return
     
     # Fetch messages
@@ -139,7 +151,20 @@ def fetch_messages(
         logger.info(f"Completed. Total {len(messages)} messages processed")
         
     except Exception as e:
-        logger.error(f"Error during message fetching: {e}")
+        error_msg = f"Error during message fetching: {e}"
+        logger.error(error_msg)
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Message Fetch Error",
+            details={
+                "channel": channel_name,
+                "start_date": start_date.isoformat() if start_date else "None",
+                "end_date": end_date.isoformat() if end_date else "None",
+                "error": str(e)
+            }
+        )
         raise
 
 
@@ -211,8 +236,21 @@ def process_messages(
         es_client = ElasticsearchClient()
         logger.info("Connected to Elasticsearch")
     except Exception as e:
-        logger.error(f"Failed to connect to Elasticsearch: {e}")
+        error_msg = f"Failed to connect to Elasticsearch: {e}"
+        logger.error(error_msg)
         logger.warning("Messages will not be stored in Elasticsearch")
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Elasticsearch Connection Error",
+            details={
+                "host": config.elasticsearch.host if config else "unknown",
+                "error": str(e),
+                "message_count": len(messages)
+            }
+        )
         return
     
     # Process messages in batches
@@ -256,8 +294,35 @@ def _store_messages_batch(
             f"Indexed {result.get('success', 0)} messages in Elasticsearch, "
             f"{result.get('failed', 0)} failed"
         )
+        
+        # Send alert if there are failed messages
+        if result.get('failed', 0) > 0:
+            alert(
+                message=f"Failed to index {result.get('failed', 0)} messages in Elasticsearch",
+                level=AlertLevel.WARNING,
+                title="Indexing Partial Failure",
+                details={
+                    "channel": channel_name,
+                    "success": result.get('success', 0),
+                    "failed": result.get('failed', 0),
+                    "batch_size": batch_size
+                }
+            )
     except Exception as e:
-        logger.error(f"Failed to store messages in Elasticsearch: {e}")
+        error_msg = f"Failed to store messages in Elasticsearch: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Elasticsearch Indexing Error",
+            details={
+                "channel": channel_name,
+                "message_count": len(messages),
+                "error": str(e)
+            }
+        )
 
 
 def generate_daily_report(
@@ -282,7 +347,19 @@ def generate_daily_report(
         channel_name = channel_info.get("name", "unknown")
         logger.info(f"Target channel: {channel_name} ({client.channel_id})")
     except Exception as e:
-        logger.error(f"Failed to get channel info: {e}")
+        error_msg = f"Failed to get channel info: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Daily Report - Channel Info Error",
+            details={
+                "channel_id": client.channel_id,
+                "error": str(e)
+            }
+        )
         return
     
     # Set target_date to yesterday if not specified
@@ -297,7 +374,20 @@ def generate_daily_report(
         stats = get_daily_stats(channel_name, target_date)
         logger.info(f"Got daily stats: {stats['message_count']} messages, {stats['reaction_count']} reactions")
     except Exception as e:
-        logger.error(f"Failed to get daily stats: {e}")
+        error_msg = f"Failed to get daily stats: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Daily Report - Stats Error",
+            details={
+                "channel": channel_name,
+                "date": target_date.strftime('%Y-%m-%d'),
+                "error": str(e)
+            }
+        )
         return
     
     # Create output directory
@@ -309,7 +399,20 @@ def generate_daily_report(
         chart_paths = create_daily_report_charts(stats, str(reports_dir))
         logger.info(f"Generated charts: {chart_paths}")
     except Exception as e:
-        logger.error(f"Failed to generate charts: {e}")
+        error_msg = f"Failed to generate charts: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.WARNING,  # WARNING because we can continue without charts
+            title="Daily Report - Chart Generation Error",
+            details={
+                "channel": channel_name,
+                "date": target_date.strftime('%Y-%m-%d'),
+                "error": str(e)
+            }
+        )
         chart_paths = {}
     
     # Capture Kibana dashboard if available
@@ -332,7 +435,21 @@ def generate_daily_report(
         kibana_screenshot = dashboard_path
         logger.info(f"Captured Kibana dashboard to {kibana_screenshot}")
     except Exception as e:
-        logger.error(f"Failed to capture Kibana dashboard: {e}")
+        error_msg = f"Failed to capture Kibana dashboard: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.WARNING,  # WARNING because we can continue without Kibana screenshot
+            title="Daily Report - Kibana Capture Error",
+            details={
+                "channel": channel_name,
+                "date": target_date.strftime('%Y-%m-%d'),
+                "dashboard_id": os.getenv("KIBANA_DAILY_DASHBOARD_ID", "slack-daily-dashboard"),
+                "error": str(e)
+            }
+        )
     
     # Format report message
     message = f"*Daily Report for {stats['date']}*\n\n"
@@ -379,7 +496,20 @@ def generate_daily_report(
             
             logger.info("Posted daily report to Slack")
         except Exception as e:
-            logger.error(f"Failed to post daily report: {e}")
+            error_msg = f"Failed to post daily report: {e}"
+            logger.error(error_msg)
+            
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Daily Report - Posting Error",
+                details={
+                    "channel": channel_name,
+                    "date": target_date.strftime('%Y-%m-%d'),
+                    "error": str(e)
+                }
+            )
     else:
         logger.info("Dry run - not posting to Slack")
 
@@ -406,7 +536,19 @@ def generate_weekly_report(
         channel_name = channel_info.get("name", "unknown")
         logger.info(f"Target channel: {channel_name} ({client.channel_id})")
     except Exception as e:
-        logger.error(f"Failed to get channel info: {e}")
+        error_msg = f"Failed to get channel info: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Weekly Report - Channel Info Error",
+            details={
+                "channel_id": client.channel_id,
+                "error": str(e)
+            }
+        )
         return
     
     # Set end_date to yesterday if not specified
@@ -421,16 +563,35 @@ def generate_weekly_report(
     
     # Get daily stats for each day in the week
     daily_stats = []
+    error_dates = []  # Track dates with errors
     current_date = start_date
+    
     while current_date <= end_date:
         try:
             stats = get_daily_stats(channel_name, current_date)
             daily_stats.append(stats)
             logger.info(f"Got daily stats for {current_date.strftime('%Y-%m-%d')}: {stats['message_count']} messages")
         except Exception as e:
-            logger.error(f"Failed to get daily stats for {current_date.strftime('%Y-%m-%d')}: {e}")
+            error_msg = f"Failed to get daily stats for {current_date.strftime('%Y-%m-%d')}: {e}"
+            logger.error(error_msg)
+            # Add to error dates list instead of sending alert immediately
+            error_dates.append(current_date.strftime('%Y-%m-%d'))
         
         current_date += timedelta(days=1)
+    
+    # Send a single consolidated alert if there were any errors
+    if error_dates:
+        alert(
+            message=f"Failed to get daily stats for {len(error_dates)} day(s) in weekly report",
+            level=AlertLevel.WARNING,  # WARNING because we can continue with partial data
+            title="Weekly Report - Daily Stats Error",
+            details={
+                "channel": channel_name,
+                "period": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+                "dates_with_errors": ", ".join(error_dates),
+                "error": "Multiple errors occurred while fetching daily stats"
+            }
+        )
     
     if not daily_stats:
         logger.error("No data available for the specified period")
@@ -445,7 +606,20 @@ def generate_weekly_report(
         chart_paths = create_weekly_report_charts(daily_stats, str(reports_dir))
         logger.info(f"Generated charts: {chart_paths}")
     except Exception as e:
-        logger.error(f"Failed to generate charts: {e}")
+        error_msg = f"Failed to generate charts: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.WARNING,  # WARNING because we can continue without charts
+            title="Weekly Report - Chart Generation Error",
+            details={
+                "channel": channel_name,
+                "period": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+                "error": str(e)
+            }
+        )
         chart_paths = {}
     
     # Capture Kibana dashboard if available
@@ -468,7 +642,21 @@ def generate_weekly_report(
         kibana_screenshot = dashboard_path
         logger.info(f"Captured Kibana dashboard to {kibana_screenshot}")
     except Exception as e:
-        logger.error(f"Failed to capture Kibana dashboard: {e}")
+        error_msg = f"Failed to capture Kibana dashboard: {e}"
+        logger.error(error_msg)
+        
+        # Send alert
+        alert(
+            message=error_msg,
+            level=AlertLevel.WARNING,  # WARNING because we can continue without Kibana screenshot
+            title="Weekly Report - Kibana Capture Error",
+            details={
+                "channel": channel_name,
+                "period": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+                "dashboard_id": os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", "slack-weekly-dashboard"),
+                "error": str(e)
+            }
+        )
     
     # Calculate weekly totals
     total_messages = sum(stats['message_count'] for stats in daily_stats)
@@ -523,7 +711,20 @@ def generate_weekly_report(
             
             logger.info("Posted weekly report to Slack")
         except Exception as e:
-            logger.error(f"Failed to post weekly report: {e}")
+            error_msg = f"Failed to post weekly report: {e}"
+            logger.error(error_msg)
+            
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Weekly Report - Posting Error",
+                details={
+                    "channel": channel_name,
+                    "period": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+                    "error": str(e)
+                }
+            )
     else:
         logger.info("Dry run - not posting to Slack")
 

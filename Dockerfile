@@ -1,27 +1,27 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron \
+    cron curl\
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
-RUN pip install poetry==2.1.0
+RUN pip install poetry==2.1.1
 
 # Copy poetry configuration files
-COPY pyproject.toml poetry.lock* ./
+COPY pyproject.toml poetry.lock* README.md ./
 
 # Configure poetry to not use virtualenvs
 RUN poetry config virtualenvs.create false
 
-# Install dependencies
-RUN poetry install --no-interaction --no-ansi --no-dev
-
 # Copy application code
 COPY . .
+
+# Install dependencies
+RUN poetry install --no-interaction --no-ansi
 
 # Setup cron jobs
 COPY crontab /etc/cron.d/app-cron

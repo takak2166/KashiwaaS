@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Union
 from elasticsearch import Elasticsearch, helpers
 from elasticsearch.exceptions import NotFoundError, ConnectionError, ConnectionTimeout, TransportError
 
+from src.bot.alerter import alert, AlertLevel
 from src.slack.message import SlackMessage
 from src.utils.config import config
 from src.utils.logger import get_logger
@@ -79,11 +80,30 @@ class ElasticsearchClient:
         self.client = Elasticsearch(self.host, **conn_options)
         
         # Check connection
-        if self.client.ping():
-            logger.info(f"Connected to Elasticsearch at {self.host}")
-        else:
-            logger.error(f"Failed to connect to Elasticsearch at {self.host}")
-            raise ConnectionError(f"Could not connect to Elasticsearch at {self.host}")
+        try:
+            if self.client.ping():
+                logger.info(f"Connected to Elasticsearch at {self.host}")
+            else:
+                error_msg = f"Ping to Elasticsearch at {self.host} failed"
+                logger.error(error_msg)
+                                
+                raise RuntimeError(f"ping failed")
+        except Exception as e:
+            error_msg = f"Failed to connect to Elasticsearch at {self.host}: {e}"
+            logger.error(error_msg)
+            
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.CRITICAL,  # CRITICAL because this is a core service
+                title="CRITICAL: Elasticsearch Connection Failure - System Functionality Impacted",
+                details={
+                    "host": self.host,
+                    "error": str(e)
+                }
+            )
+            
+            raise
     
     @retry_with_backoff(
         max_retries=3,
