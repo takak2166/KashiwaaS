@@ -246,6 +246,6 @@ class TestElasticsearchQuery:
             must_not=must_not_queries
         )
         
-        assert query["bool"]["must"] == must_queries
-        assert query["bool"]["should"] == should_queries
-        assert query["bool"]["must_not"] == must_not_queries
+        assert query["query"]["bool"]["must"] == must_queries
+        assert query["query"]["bool"]["should"] == should_queries
+        assert query["query"]["bool"]["must_not"] == must_not_queries
