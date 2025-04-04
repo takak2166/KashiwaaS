@@ -1,10 +1,10 @@
 # Slack data collection - every weekday at 6:00 AM
-0 6 * * 1-5 cd /app && poetry run python src/main.py fetch --days 1 >> /var/log/app/collector.log 2>&1
+0 6 * * 1-5 cd /app && /usr/local/bin/poetry run python src/main.py fetch --days 1 >> /var/log/app/collector.log 2>&1
 
 # Daily report - every weekday at 8:00 AM
-0 8 * * 1-5 cd /app && poetry run python src/main.py report --type daily >> /var/log/app/daily_report.log 2>&1
+0 8 * * 1-5 cd /app && /usr/local/bin/poetry run python src/main.py report --type daily >> /var/log/app/daily_report.log 2>&1
 
 # Weekly report - every Monday at 8:05 AM
-5 8 * * 1 cd /app && poetry run python src/main.py report --type weekly >> /var/log/app/weekly_report.log 2>&1
+5 8 * * 1 cd /app && /usr/local/bin/poetry run python src/main.py report --type weekly >> /var/log/app/weekly_report.log 2>&1
 
 # Empty line at the end is required for cron

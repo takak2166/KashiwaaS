@@ -19,6 +19,7 @@ if [ "$1" = "cron" ]; then
     # Keep container running
     if [ "$2" = "-f" ]; then
         echo "Running in foreground mode"
+        touch /var/log/app/collector.log /var/log/app/daily_report.log /var/log/app/weekly_report.log
         tail -f /var/log/app/collector.log /var/log/app/daily_report.log /var/log/app/weekly_report.log
     fi
 else
