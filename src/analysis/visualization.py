@@ -4,7 +4,7 @@ Provides functionality for visualizing Slack message data
 """
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 # Set matplotlib backend to Agg (non-interactive) before importing pyplot
 import matplotlib
@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.figure import Figure
 import numpy as np
+import plotly.graph_objects as go
 
 from src.utils.logger import get_logger
 
@@ -224,74 +225,66 @@ def create_hourly_line_chart(
 
 
 def create_weekly_hourly_line_chart(
-    daily_stats: List[Dict[str, Any]],
-    title: str = "Message Activity Over Week",
-    figsize: Tuple[int, int] = (15, 6)
-) -> Figure:
+    stats: Dict[str, Any],
+    title: str = "Message Activity Over Week"
+) -> go.Figure:
     """
-    Create a line chart showing message activity for each hour over a 7-day period (168 hours)
+    Create a line chart showing message activity by hour over a week
     
     Args:
-        daily_stats: List of daily statistics
+        stats: Weekly statistics
         title: Chart title
-        figsize: Figure size
         
     Returns:
-        Figure: Matplotlib figure
+        go.Figure: Plotly figure
     """
+    # Get hourly message counts
+    hourly_counts = stats['hourly_message_counts']
+    
+    # Get date range
+    start_date = datetime.strptime(stats['start_date'], '%Y-%m-%d')
+    
+    # Aggregate counts into 2-hour intervals
+    two_hour_counts = []
+    two_hour_labels = []
+    for day in range(7):
+        current_date = start_date + timedelta(days=day)
+        for hour in range(0, 24, 2):
+            # Sum counts for current 2-hour interval
+            count = sum(hourly_counts[day*24 + hour:day*24 + hour + 2])
+            two_hour_counts.append(count)
+            # Format label as yyyy-mm-dd hh:mm
+            label = f"{current_date.strftime('%Y-%m-%d')} {hour:02d}:00"
+            two_hour_labels.append(label)
+    
     # Create figure
-    fig, ax = plt.subplots(figsize=figsize)
+    fig = go.Figure()
     
-    # Sort daily stats by date
-    sorted_stats = sorted(daily_stats, key=lambda x: x['date'])
+    # Add single line for the entire week
+    fig.add_trace(go.Scatter(
+        x=two_hour_labels,
+        y=two_hour_counts,
+        mode='lines+markers',
+        name="Message Count"
+    ))
     
-    # Prepare data
-    all_hours = []
-    all_counts = []
-    all_labels = []
-    
-    # For each day
-    for day_index, stats in enumerate(sorted_stats):
-        date = stats['date']
-        hourly_data = stats['hourly_distribution']
-        
-        # For each hour in the day
-        for hour in range(24):
-            count = hourly_data.get(hour, 0)
-            all_hours.append(day_index * 24 + hour)
-            all_counts.append(count)
-            
-            # Create label for every 6 hours
-            if hour % 6 == 0:
-                all_labels.append(f"{date} {hour:02d}:00")
-            else:
-                all_labels.append("")
-    
-    # Create line chart
-    ax.plot(all_hours, all_counts, marker='o', linestyle='-', color='#007bff', markersize=4)
-    
-    # Add day separators
-    for day in range(1, len(sorted_stats)):
-        ax.axvline(x=day * 24, color='gray', linestyle='--', alpha=0.5)
-    
-    # Set labels and title
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Number of Messages')
-    ax.set_title(title)
-    
-    # Set x-axis ticks
-    tick_positions = [i for i, label in enumerate(all_labels) if label]
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels([all_labels[i] for i in tick_positions], rotation=45)
-    
-    # Set y-axis to start at 0
-    ax.set_ylim(bottom=0)
-    
-    # Add grid
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    # Tight layout
-    fig.tight_layout()
+    # Update layout
+    fig.update_layout(
+        title=title,
+        xaxis_title="Time",
+        yaxis_title="Message Count",
+        showlegend=True,
+        template="plotly_white",
+        width=1600,  # 横幅を1600pxに設定
+        height=800,  # 高さも調整
+        xaxis=dict(
+            tickangle=-45,  # 右上がりで表示
+            tickmode='array',
+            tickvals=two_hour_labels[::3],  # 3時間ごとに目盛りを表示
+            ticktext=two_hour_labels[::3],  # 日付と時刻を表示
+            showticklabels=True  # 目盛りラベルを表示
+        )
+    )
     
     return fig
 
@@ -470,7 +463,7 @@ def create_user_activity_chart(
 
 
 def save_figure(
-    fig: Figure,
+    fig: Union[Figure, go.Figure],
     filename: str,
     dpi: int = 100,
     format: str = 'png'
@@ -479,86 +472,71 @@ def save_figure(
     Save figure to file
     
     Args:
-        fig: Matplotlib figure
+        fig: Matplotlib or Plotly figure
         filename: Output filename (without extension)
-        dpi: DPI for output
+        dpi: DPI for output (only used for Matplotlib)
         format: Output format (png, jpg, svg, pdf)
         
     Returns:
         str: Path to saved file
     """
     output_path = f"{filename}.{format}"
-    fig.savefig(output_path, dpi=dpi, format=format, bbox_inches='tight')
-    plt.close(fig)
     
-    logger.info(f"Saved figure to {output_path}")
+    if isinstance(fig, go.Figure):
+        fig.write_image(output_path)
+        logger.info(f"Saved Plotly figure to {output_path}")
+    else:
+        fig.savefig(output_path, dpi=dpi, format=format, bbox_inches='tight')
+        plt.close(fig)
+        logger.info(f"Saved Matplotlib figure to {output_path}")
+    
     return output_path
 
-
-def create_daily_report_charts(
-    stats: Dict[str, Any],
-    output_dir: str = "reports"
-) -> Dict[str, str]:
-    """
-    Create charts for daily report
-    
-    Args:
-        stats: Daily statistics
-        output_dir: Output directory
-        
-    Returns:
-        Dict[str, str]: Chart paths
-    """
-    # For daily reports, only include Total Messages and Total Reactions
-    # No charts needed as per requirements
-    return {}
-
-
 def create_weekly_report_charts(
-    daily_stats: List[Dict[str, Any]],
+    stats: Dict[str, Any],
     output_dir: str = "reports"
 ) -> Dict[str, str]:
     """
     Create charts for weekly report
     
     Args:
-        daily_stats: List of daily statistics
+        stats: Weekly statistics
         output_dir: Output directory
         
     Returns:
         Dict[str, str]: Chart paths
     """
     # Get date range
-    start_date = min(daily_stats, key=lambda x: x['date'])['date']
-    end_date = max(daily_stats, key=lambda x: x['date'])['date']
+    start_date = stats['start_date']
+    end_date = stats['end_date']
     
     # Create weekly hourly line chart (168 hours)
     weekly_hourly_fig = create_weekly_hourly_line_chart(
-        daily_stats,
+        stats,
         title=f"Message Activity Over Week ({start_date} to {end_date})"
     )
     weekly_hourly_path = save_figure(weekly_hourly_fig, f"{output_dir}/hourly_{start_date}_to_{end_date}")
     
-    # Aggregate reaction data
-    reaction_counts = {}
-    for stats in daily_stats:
-        for reaction in stats['top_reactions']:
-            name = reaction['name']
-            count = reaction['count']
-            if name in reaction_counts:
-                reaction_counts[name] += count
-            else:
-                reaction_counts[name] = count
-    
-    # Sort reactions by count
-    top_reactions = [
-        {"name": name, "count": count}
-        for name, count in sorted(reaction_counts.items(), key=lambda x: x[1], reverse=True)
-    ][:10]  # Top 10
-    
     # Create reaction pie chart if there are reactions
     reaction_pie_path = None
-    if top_reactions:
+    if stats['reaction_count'] > 0:
+        # Aggregate reaction data
+        reaction_counts = {}
+        for post in stats['top_posts']:
+            for reaction in post['reactions']:
+                name = reaction['name']
+                count = reaction['count']
+                if name in reaction_counts:
+                    reaction_counts[name] += count
+                else:
+                    reaction_counts[name] = count
+        
+        # Sort reactions by count
+        top_reactions = [
+            {"name": name, "count": count}
+            for name, count in sorted(reaction_counts.items(), key=lambda x: x[1], reverse=True)
+        ][:10]  # Top 10
+        
         # Pie chart for reactions
         reaction_pie_fig = create_reaction_pie_chart(
             top_reactions,
