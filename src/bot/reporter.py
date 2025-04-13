@@ -216,7 +216,7 @@ def generate_weekly_report(
         WEEKLY_DASHBOARD_ID = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", "slack-weekly-dashboard")
         
         # Capture dashboard
-        dashboard_path = str(reports_dir / f"kibana_weekly_{stats['start_date']}_to_{stats['end_date']}.png")
+        dashboard_path = str(reports_dir / "kibana_weekly_dashboard.png")
         kibana_capture.capture_dashboard(
             WEEKLY_DASHBOARD_ID,
             dashboard_path,

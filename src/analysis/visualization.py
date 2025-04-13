@@ -515,7 +515,7 @@ def create_weekly_report_charts(
         stats,
         title=f"Message Activity Over Week ({start_date} to {end_date})"
     )
-    weekly_hourly_path = save_figure(weekly_hourly_fig, f"{output_dir}/hourly_{start_date}_to_{end_date}")
+    weekly_hourly_path = save_figure(weekly_hourly_fig, f"{output_dir}/hourly_weekly")
     
     # Create reaction pie chart if there are reactions
     reaction_pie_path = None
@@ -542,7 +542,7 @@ def create_weekly_report_charts(
             top_reactions,
             title=f"Reaction Distribution ({start_date} to {end_date})"
         )
-        reaction_pie_path = save_figure(reaction_pie_fig, f"{output_dir}/reaction_pie_{start_date}_to_{end_date}")
+        reaction_pie_path = save_figure(reaction_pie_fig, f"{output_dir}/reaction_pie_weekly")
     
     return {
         "hourly": weekly_hourly_path,

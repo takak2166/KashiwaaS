@@ -1,4 +1,7 @@
 # KashiwaaS
+<[English](#English)|[日本語](#日本語)>
+
+## English
 
 ## Overview
 This system collects messages from a specific Slack channel, stores them in Elasticsearch, and analyzes and visualizes the message data. It helps improve team engagement by analyzing communication patterns.
@@ -98,6 +101,7 @@ docker-compose exec app poetry run python scripts/import_kibana_objects.py
 5. Create a Pull Request
 
 ---
+## 日本語
 
 ## 概要
 このシステムは、特定のSlackチャンネルのメッセージを収集し、Elasticsearchに保存して、メッセージデータを分析・可視化します。コミュニケーションパターンを分析することで、チームのエンゲージメント向上に役立ちます。

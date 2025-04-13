@@ -182,6 +182,10 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
   - 最もリアクションが多かった投稿Top3
   - タグクラウド（kuromoji解析による名詞抽出）
   - Kibanaで生成したグラフはseleniumのwebdriverで読み込み、pngに変換
+  - 生成される画像ファイルは固定の名前を使用（上書き保存）
+    - ダッシュボードスクリーンショット: `kibana_weekly_dashboard.png`
+    - 週次時間帯別チャート: `hourly_weekly.png`
+    - リアクションパイチャート: `reaction_pie_weekly.png`
 
 ## 4. データ構造
 
