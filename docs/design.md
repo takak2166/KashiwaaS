@@ -33,6 +33,16 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
 - requests
 - pytest
 - loguru
+- black
+- isort
+- flake8
+- pytz
+- matplotlib
+- numpy
+- jinja2
+- pandas
+- plotly
+- kaleido
 
 ### 開発環境
 - Docker Compose 構成:
@@ -79,8 +89,8 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
 - 特定のSlackチャンネルの投稿を指定期間で取得
   ```python
   # 使用するSlack APIメソッド
-  conversations_history(channel_id, oldest, latest, limit, inclusive)
-  conversations_replies(channel_id, ts, limit)
+  conversations.history(channel_id, oldest, latest, limit, inclusive)
+  conversations.replies(channel_id, ts, limit)
   ```
 - スレッドの返信を含めた全投稿情報を取得
 - ページネーション処理による大量データの確実な取得
@@ -214,7 +224,7 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
 ### 再試行ポリシー
 - リクエスト失敗時はexponentialバックオフで再試行
   ```python
-  def retry_with_backoff(func, max_retries=5, initial_backoff=1):
+  def retry_with_backoff(func, max_retries=5, initial_backoff=1.0):
       retries = 0
       while retries < max_retries:
           try:
@@ -228,6 +238,7 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
   ```
 - Slack API レート制限への対応（Tier 3: 50+ per minute）
 - 最大5回まで再試行し、それでも失敗した場合はエラー終了・アラート送信
+- `get_channel_info`は3回、`conversations_history`と`conversations_replies`は5回の再試行
 
 ### 例外処理
 - 種類別の例外処理
@@ -235,9 +246,10 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
   - 認証エラー: 即時終了・アラート
   - データ不整合: ログ記録・スキップ
   - Elasticsearch書き込みエラー: バッファリング・後で再試行
+- `is_temporary_error`を使用して一時的なエラーを判定
 
 ### ログ出力
-- ログレベル: INFO, WARNING, ERROR
+- ログレベル: DEBUG, INFO, WARNING, ERROR
 - ログフォーマット: `{timestamp} {level} {module}:{line} - {message}`
 - ログローテーション: 日次・7日間保持
 - 重要エラーはSlackアラートチャンネルにも通知
@@ -270,22 +282,38 @@ Slackの特定のチャンネルのメッセージをElasticsearchに保管し�
 ```
 project/
 ├── pyproject.toml           # Poetry設定
+├── .gitignore               # Git除外設定
 ├── .env.example             # 環境変数サンプル
 ├── README.md                # プロジェクト説明
 ├── Dockerfile               # Dockerビルド定義
 ├── docker-compose.yml       # Docker Compose設定
-├── .gitignore               # Git除外設定
+├── crontab
+├── docker-entrypoint.sh
+├── elasticsearch
+│   └── Dockerfile
+├── docs
+│   └── design.md
+├── kibana
+│   ├── dashboards
+│   └── templates
+│       ├── dashboard.ndjson.j2
+│       ├── index_pattern.ndjson.j2
+│       └── lens.ndjson.j2
 ├── src/
 │   ├── main.py              # エントリーポイント
 │   ├── slack/
 │   │   ├── __init__.py
 │   │   ├── client.py        # Slack API操作
 │   │   └── message.py       # メッセージデータモデル
-│   ├── elasticsearch/
+│   ├── es_client/
 │   │   ├── __init__.py
 │   │   ├── client.py        # ES操作
 │   │   ├── index.py         # インデックス定義
 │   │   └── query.py         # クエリビルダー
+│   ├── kibana
+│   │   ├── __init__.py
+│   │   ├── capture.py
+│   │   └── dashboard.py
 │   ├── analysis/
 │   │   ├── __init__.py
 │   │   ├── daily.py         # 日次分析
@@ -293,17 +321,21 @@ project/
 │   │   └── visualization.py # 可視化処理
 │   ├── bot/
 │   │   ├── __init__.py
+│   │   ├── alerter.py
 │   │   ├── reporter.py      # 定期レポート投稿
+│   │   ├── utils.py
 │   │   └── formatter.py     # メッセージフォーマット
 │   └── utils/
 │       ├── __init__.py
 │       ├── logger.py        # ログ設定
 │       ├── config.py        # 設定読み込み
-│       └── date_utils.py    # 日付操作ユーティリティ
+│       ├── date_utils.py    # 日付操作ユーティリティ
+│       └── retry.py
+│       
 ├── scripts/
 │   ├── setup_indices.py     # インデックス初期化
 │   ├── backfill.py          # 過去データ取得
-│   └── generate_dashboard.py # Kibanaダッシュボード生成
+│   └── import_kibana_objects.py # Kibanaダッシュボード生成
 ├── kibana/
 │   └── dashboards/          # Kibanaダッシュボード定義
 └── tests/

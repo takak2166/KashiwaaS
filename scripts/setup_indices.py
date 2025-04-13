@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.es_client.client import ElasticsearchClient
-from src.es_client.index import SLACK_INDEX_TEMPLATE, get_index_name
+from src.es_client.index import get_slack_template, get_index_name
 from src.utils.config import config
 from src.utils.logger import get_logger
 
@@ -33,7 +33,7 @@ def setup_template(client: ElasticsearchClient, template_name: str = "slack-mess
     logger.info(f"Setting up index template: {template_name}")
     
     # Create the template
-    success = client.create_template(template_name, SLACK_INDEX_TEMPLATE)
+    success = client.create_template(template_name, get_slack_template())
     
     if success:
         logger.info(f"Successfully created template: {template_name}")
