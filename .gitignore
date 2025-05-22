@@ -3,3 +3,4 @@ logs
 __pycache__
 poetry.lock
 .vscode
+reports
