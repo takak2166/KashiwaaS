@@ -171,7 +171,7 @@ def get_top_posts_with_reactions(
                 }
             }
         },
-        "size": 100  # 十分な数を取得してからソート
+        "size": 100  # Get enough records before sorting
     }
     
     # Execute search
@@ -194,29 +194,29 @@ def get_top_posts_with_reactions(
         thread_ts = source.get("thread_ts", "")
         ts = source.get("ts", "")
         
-        # デバッグログを追加
+        # Add debug log
         logger.debug(f"Message source: {source}")
         logger.debug(f"thread_ts: {thread_ts}, ts: {ts}")
         
-        # thread_tsが存在する場合はそれを使用、そうでない場合はtsを使用
+        # Use thread_ts if it exists, otherwise use ts
         message_ts = thread_ts if thread_ts else ts
         
-        # どちらも存在しない場合はtimestampから抽出
+        # If neither exists, extract from timestamp
         if not message_ts:
             timestamp = source.get("timestamp", "")
             if timestamp:
-                # ISO 8601形式のタイムスタンプからUnixタイムスタンプを抽出
+                # Extract Unix timestamp from ISO 8601 format
                 try:
                     from datetime import datetime
                     dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                    # ミリ秒部分を取得
+                    # Get milliseconds part
                     microsecond = dt.microsecond
-                    # Unixタイムスタンプ（秒）とミリ秒を結合
+                    # Combine Unix timestamp (seconds) and milliseconds
                     message_ts = f"{int(dt.timestamp())}{microsecond:06d}"
                 except (ValueError, AttributeError):
                     logger.warning(f"Failed to parse timestamp: {timestamp}")
         
-        # タイムスタンプの形式を変換（小数点を削除）
+        # Convert timestamp format (remove decimal point)
         if message_ts:
             message_ts = message_ts.replace(".", "")
         

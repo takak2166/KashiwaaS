@@ -275,14 +275,14 @@ def create_weekly_hourly_line_chart(
         yaxis_title="Message Count",
         showlegend=True,
         template="plotly_white",
-        width=1600,  # 横幅を1600pxに設定
-        height=800,  # 高さも調整
+        width=1600,  # Set width to 1600px
+        height=800,  # Adjust height accordingly
         xaxis=dict(
-            tickangle=-45,  # 右上がりで表示
+            tickangle=-45,  # Display at 45 degrees upward
             tickmode='array',
-            tickvals=two_hour_labels[::3],  # 3時間ごとに目盛りを表示
-            ticktext=two_hour_labels[::3],  # 日付と時刻を表示
-            showticklabels=True  # 目盛りラベルを表示
+            tickvals=two_hour_labels[::3],  # Show tick marks every 3 hours
+            ticktext=two_hour_labels[::3],  # Display date and time
+            showticklabels=True  # Show tick labels
         )
     )
     

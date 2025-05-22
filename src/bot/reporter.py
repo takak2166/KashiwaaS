@@ -212,7 +212,7 @@ def generate_weekly_report(
         kibana = KibanaDashboard()
         kibana_capture = KibanaCapture()
         
-        # ダッシュボードIDを変数として定義
+        # Define dashboard ID as a variable
         WEEKLY_DASHBOARD_ID = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", "slack-weekly-dashboard")
         
         # Capture dashboard
