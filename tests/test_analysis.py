@@ -1,43 +1,99 @@
 import pytest
-from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
 from src.analysis.daily import (
     get_daily_stats,
-    get_message_count,
-    get_reaction_count,
-    get_hourly_distribution,
-    get_top_reactions,
     get_user_stats
 )
 from src.analysis.visualization import (
     create_reaction_pie_chart,
     create_hourly_distribution_chart,
-    create_hourly_line_chart,
-    create_weekly_hourly_line_chart
+    create_hourly_line_chart
 )
 
 class TestDailyAnalysis:
-    def test_get_message_count(self, sample_date_range):
+    @pytest.fixture
+    def mock_es_client(self):
+        """
+        Mock Elasticsearch client fixture that simulates ES responses
+        and allows verification of method calls
+        """
+        mock_client = Mock()
+        # Configure mock responses to simulate Elasticsearch behavior
+        mock_client.search.return_value = {
+            "hits": {
+                "total": {
+                    "value": 100
+                }
+            },
+            "aggregations": {
+                "hourly": {
+                    "buckets": [
+                        {"key_as_string": "2024-01-01 00:00:00", "doc_count": 10},
+                        {"key_as_string": "2024-01-01 01:00:00", "doc_count": 20}
+                    ]
+                },
+                "users": {
+                    "buckets": [
+                        {"key": "user1", "doc_count": 50},
+                        {"key": "user2", "doc_count": 30}
+                    ]
+                }
+            }
+        }
+        return mock_client
+
+    def test_get_daily_stats(self, mock_es_client, sample_date_range):
+        """Test get_daily_stats function with mocked ES client"""
         start_date, end_date = sample_date_range
-        expected_duration = timedelta(days=1)
-        actual_duration = end_date - start_date
-        assert actual_duration == expected_duration
-    
-    def test_get_reaction_count(self, sample_reaction_data):
-        total_reactions = sum(reaction["count"] for reaction in sample_reaction_data)
-        assert total_reactions == 18
-    
-    def test_get_hourly_distribution(self, sample_hourly_data):
-        total_messages = sum(sample_hourly_data.values())
-        assert total_messages == 300
-    
-    def test_get_top_reactions(self, sample_reaction_data):
-        sorted_reactions = sorted(
-            sample_reaction_data,
-            key=lambda x: x["count"],
-            reverse=True
+        channel_name = "test-channel"
+        
+        result = get_daily_stats(channel_name, start_date, mock_es_client)
+        
+        # Verify basic structure
+        assert isinstance(result, dict)
+        assert "date" in result
+        assert "message_count" in result
+        assert "reaction_count" in result
+        assert "user_stats" in result
+        assert "hourly_message_counts" in result
+        
+        # Verify ES client method calls
+        assert mock_es_client.search.call_count >= 1
+        
+        # Verify date format
+        assert result["date"] == start_date.strftime("%Y-%m-%d")
+        
+        # Verify message count
+        assert result["message_count"] == 100
+        
+        # Verify hourly message counts
+        assert len(result["hourly_message_counts"]) == 24
+        assert isinstance(result["hourly_message_counts"], list)
+
+    def test_get_user_stats(self, mock_es_client, sample_date_range):
+        """Test get_user_stats function with mocked ES client"""
+        start_date, end_date = sample_date_range
+        index_name = "test-index"
+        
+        result = get_user_stats(
+            mock_es_client,
+            index_name,
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d")
         )
-        assert sorted_reactions[0]["name"] == "thumbsup"
-        assert sorted_reactions[0]["count"] == 10
+        
+        # Verify basic structure
+        assert isinstance(result, list)
+        assert len(result) == 2
+        
+        # Verify user statistics
+        assert result[0]["username"] == "user1"
+        assert result[0]["message_count"] == 50
+        assert result[1]["username"] == "user2"
+        assert result[1]["message_count"] == 30
+        
+        # Verify ES client method call
+        mock_es_client.search.assert_called_once()
 
 class TestVisualization:
     def test_create_reaction_pie_chart(self, sample_reaction_data):
