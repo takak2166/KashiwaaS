@@ -2,6 +2,7 @@
 Configuration Management Module
 Loads and validates settings from environment variables
 """
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ else:
 @dataclass
 class SlackConfig:
     """Slack API configuration"""
+
     api_token: str
     channel_id: str
     alert_channel_id: Optional[str] = None
@@ -33,6 +35,7 @@ class SlackConfig:
 @dataclass
 class AlertConfig:
     """Alert configuration"""
+
     min_level: str = "WARNING"  # INFO, WARNING, ERROR, CRITICAL
     throttle_seconds: int = 300
     max_per_hour: int = 10
@@ -41,6 +44,7 @@ class AlertConfig:
 @dataclass
 class ElasticsearchConfig:
     """Elasticsearch configuration"""
+
     host: str
     user: Optional[str] = None
     password: Optional[str] = None
@@ -49,6 +53,7 @@ class ElasticsearchConfig:
 @dataclass
 class AppConfig:
     """Application-wide configuration"""
+
     slack: SlackConfig
     elasticsearch: ElasticsearchConfig
     timezone: str
@@ -61,7 +66,7 @@ def load_config() -> AppConfig:
 
     Returns:
         AppConfig: Application configuration
-    
+
     Raises:
         ValueError: If required environment variables are not set
     """
@@ -69,25 +74,25 @@ def load_config() -> AppConfig:
     slack_token = os.getenv("SLACK_API_TOKEN")
     slack_channel = os.getenv("SLACK_CHANNEL_ID")
     slack_alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID")
-    
+
     if not slack_token:
         raise ValueError("SLACK_API_TOKEN environment variable is required")
     if not slack_channel:
         raise ValueError("SLACK_CHANNEL_ID environment variable is required")
-    
+
     # Load Elasticsearch configuration
     es_host = os.getenv("ELASTICSEARCH_HOST", "http://elasticsearch:9200")
     es_user = os.getenv("ELASTICSEARCH_USER")
     es_password = os.getenv("ELASTICSEARCH_PASSWORD")
-    
+
     # Load Alert configuration
     alert_min_level = os.getenv("ALERT_MIN_LEVEL", "WARNING")
     alert_throttle_seconds = int(os.getenv("ALERT_THROTTLE_SECONDS", "300"))
     alert_max_per_hour = int(os.getenv("ALERT_MAX_PER_HOUR", "10"))
-    
+
     # Timezone configuration
     timezone = os.getenv("TIMEZONE", "Asia/Tokyo")
-    
+
     return AppConfig(
         slack=SlackConfig(
             api_token=slack_token,

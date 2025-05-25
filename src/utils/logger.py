@@ -2,6 +2,7 @@
 Logging Configuration Module
 Provides consistent logging throughout the application
 """
+
 import os
 import sys
 from pathlib import Path
@@ -23,7 +24,12 @@ logger.remove()  # Remove default handler
 logger.add(
     sys.stderr,
     level=LOG_LEVEL,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format=(
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+        "<level>{message}</level>"
+    ),
 )
 
 # Log to file

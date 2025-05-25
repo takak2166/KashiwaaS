@@ -2,6 +2,7 @@
 Date Utility Module
 Provides functions for date and time conversion and manipulation
 """
+
 import datetime
 from typing import Optional, Tuple, Union
 
@@ -42,10 +43,10 @@ def convert_to_timestamp(dt: Union[datetime.datetime, str]) -> float:
     """
     if isinstance(dt, str):
         dt = datetime.datetime.fromisoformat(dt.replace("Z", "+00:00"))
-    
+
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=DEFAULT_TIMEZONE)
-    
+
     return dt.timestamp()
 
 
@@ -77,11 +78,11 @@ def get_date_range(days: int, end_date: Optional[datetime.datetime] = None) -> T
     """
     end = end_date or get_current_time()
     start = end - datetime.timedelta(days=days)
-    
+
     # Adjust to start and end of day
     start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
-    
+
     return convert_to_timestamp(start), convert_to_timestamp(end)
 
 
