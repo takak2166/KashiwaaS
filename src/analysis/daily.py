@@ -45,6 +45,7 @@ def get_daily_stats(
                     "timestamp": {
                         "gte": date_str,
                         "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                        "time_zone": "+09:00"
                     }
                 }
             },
@@ -56,22 +57,30 @@ def get_daily_stats(
         {
             "size": 0,
             "query": {
-                "bool": {
-                    "must": [
-                        {
-                            "range": {
-                                "timestamp": {
-                                    "gte": date_str,
-                                    "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                                }
+                "range": {
+                    "timestamp": {
+                        "gte": date_str,
+                        "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                        "time_zone": "+09:00"
+                    }
+                }
+            },
+            "aggs": {
+                "reactions_nested": {
+                    "nested": {
+                        "path": "reactions"
+                    },
+                    "aggs": {
+                        "total_count": {
+                            "sum": {
+                                "field": "reactions.count"
                             }
-                        },
-                        {"exists": {"field": "reactions"}},
-                    ]
+                        }
+                    },
                 }
             },
         },
-    )["hits"]["total"]["value"]
+    )["aggregations"]["reactions_nested"]["total_count"]["value"]
 
     # Get hourly message counts
     result = es_client.search(
@@ -83,6 +92,7 @@ def get_daily_stats(
                     "timestamp": {
                         "gte": date_str,
                         "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                        "time_zone": "+09:00"
                     }
                 }
             },
@@ -114,7 +124,7 @@ def get_daily_stats(
     return {
         "date": date_str,
         "message_count": message_count,
-        "reaction_count": reaction_count,
+        "reaction_count": int(reaction_count),
         "user_stats": user_stats,
         "hourly_message_counts": hourly_counts,
     }

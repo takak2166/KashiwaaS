@@ -287,12 +287,6 @@ def _store_messages_batch(
         )
 
 
-# Report generation functions moved to src/bot/reporter.py
-
-
-# Weekly report generation function moved to src/bot/reporter.py
-
-
 def main():
     """Main execution function"""
     # Check configuration

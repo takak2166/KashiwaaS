@@ -4,6 +4,7 @@ Loads and validates settings from environment variables
 """
 
 import os
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -116,7 +117,7 @@ def load_config() -> AppConfig:
 # Global configuration object
 try:
     config = load_config()
-    logger.info(f"Configuration loaded successfully. Timezone: {config.timezone}")
+    logger.info(f"Configuration loaded successfully. Timezone: {config.timezone}, Now: {datetime.now()}")
 except ValueError as e:
     logger.error(f"Failed to load configuration: {e}")
     config = None
