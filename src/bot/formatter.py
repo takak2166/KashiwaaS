@@ -34,7 +34,6 @@ def format_daily_report(stats: Dict[str, Any]) -> str:
 
 
 def format_weekly_report(
-    stats: Dict[str, Any],
     start_date: str,
     end_date: str,
     total_messages: int,
@@ -46,7 +45,6 @@ def format_weekly_report(
     Format weekly report message
 
     Args:
-        stats: Weekly statistics
         start_date: Start date
         end_date: End date
         total_messages: Total message count
@@ -71,8 +69,7 @@ def format_weekly_report(
     # Add top posts
     if top_posts:
         message += "\nTop Posts:\n"
-        for post in top_posts[:3]:
-            message += f"- {post['text'][:100]}... ({post['reaction_count']} reactions)\n"
+        message += format_top_posts_with_reactions(top_posts)
 
     return message
 
@@ -107,7 +104,7 @@ def format_dashboard_title(date_str: str, is_weekly: bool = False) -> str:
     return f"Kibana Dashboard - {date_str}"
 
 
-def format_top_posts_with_reactions(posts: List[Dict[str, Any]], channel_name: str) -> str:
+def format_top_posts_with_reactions(posts: List[Dict[str, Any]]) -> str:
     """
     Format top posts with most reactions
 
@@ -135,7 +132,7 @@ def format_top_posts_with_reactions(posts: List[Dict[str, Any]], channel_name: s
         slack_link = post["slack_link"]
 
         # Format post
-        formatted_post = f"{i}. {message_text} ({total_reactions} reactions)\n<{slack_link}|Link>"
+        formatted_post = f"{i}. <{slack_link}|{message_text}> ({total_reactions} reactions)"
         formatted_posts.append(formatted_post)
 
     return "\n\n".join(formatted_posts)

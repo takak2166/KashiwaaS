@@ -220,7 +220,6 @@ def generate_weekly_report(
 
     # Format report message
     message = format_weekly_report(
-        stats=stats,
         start_date=stats["start_date"],
         end_date=stats["end_date"],
         total_messages=stats["message_count"],
