@@ -4,8 +4,8 @@ Loads and validates settings from environment variables
 """
 
 import os
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 

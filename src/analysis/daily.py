@@ -45,7 +45,7 @@ def get_daily_stats(
                     "timestamp": {
                         "gte": date_str,
                         "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "time_zone": "+09:00"
+                        "time_zone": "+09:00",
                     }
                 }
             },
@@ -61,22 +61,14 @@ def get_daily_stats(
                     "timestamp": {
                         "gte": date_str,
                         "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "time_zone": "+09:00"
+                        "time_zone": "+09:00",
                     }
                 }
             },
             "aggs": {
                 "reactions_nested": {
-                    "nested": {
-                        "path": "reactions"
-                    },
-                    "aggs": {
-                        "total_count": {
-                            "sum": {
-                                "field": "reactions.count"
-                            }
-                        }
-                    },
+                    "nested": {"path": "reactions"},
+                    "aggs": {"total_count": {"sum": {"field": "reactions.count"}}},
                 }
             },
         },
@@ -92,7 +84,7 @@ def get_daily_stats(
                     "timestamp": {
                         "gte": date_str,
                         "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "time_zone": "+09:00"
+                        "time_zone": "+09:00",
                     }
                 }
             },
