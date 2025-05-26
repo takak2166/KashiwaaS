@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, Union
 
 import matplotlib
-import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from matplotlib.figure import Figure
@@ -20,7 +19,7 @@ logger = get_logger(__name__)
 def create_reaction_pie_chart(
     reaction_data: List[Dict[str, Any]],
     title: str = "Reaction Distribution",
-    figsize: Tuple[int, int] = (10, 10),
+    figsize: Tuple[int, int] = (5, 5),
 ) -> Figure:
     """
     Create a pie chart of reaction distribution
@@ -274,179 +273,6 @@ def create_weekly_hourly_line_chart(stats: Dict[str, Any], title: str = "Message
             showticklabels=True,  # Show tick labels
         ),
     )
-
-    return fig
-
-
-def create_daily_activity_chart(
-    daily_data: Dict[str, int],
-    title: str = "Daily Message Activity",
-    figsize: Tuple[int, int] = (10, 6),
-) -> Figure:
-    """
-    Create daily activity chart
-
-    Args:
-        daily_data: Daily activity data (date string -> count)
-        title: Chart title
-        figsize: Figure size
-
-    Returns:
-        Figure: Matplotlib figure
-    """
-    # Create figure
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Prepare data
-    dates = [datetime.strptime(date_str, "%Y-%m-%d") for date_str in daily_data.keys()]
-    counts = list(daily_data.values())
-
-    # Create line chart
-    ax.plot(dates, counts, marker="o", linestyle="-", color="#007bff", markersize=8)
-
-    # Add value labels
-    for i, count in enumerate(counts):
-        ax.text(
-            dates[i],
-            count + max(counts) * 0.02,
-            f"{count}",
-            ha="center",
-            va="bottom",
-            fontsize=9,
-        )
-
-    # Set labels and title
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Number of Messages")
-    ax.set_title(title)
-
-    # Format x-axis as dates
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-    ax.xaxis.set_major_locator(mdates.DayLocator())
-    plt.xticks(rotation=45)
-
-    # Set y-axis to start at 0
-    ax.set_ylim(bottom=0)
-
-    # Add grid
-    ax.grid(axis="y", linestyle="--", alpha=0.7)
-
-    # Tight layout
-    fig.tight_layout()
-
-    return fig
-
-
-def create_reaction_chart(
-    reaction_data: List[Dict[str, Any]],
-    title: str = "Top Reactions",
-    figsize: Tuple[int, int] = (10, 6),
-) -> Figure:
-    """
-    Create reaction chart
-
-    Args:
-        reaction_data: Reaction data (list of dicts with 'name' and 'count')
-        title: Chart title
-        figsize: Figure size
-
-    Returns:
-        Figure: Matplotlib figure
-    """
-    # Create figure
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Prepare data
-    names = [item["name"] for item in reaction_data]
-    counts = [item["count"] for item in reaction_data]
-
-    # Create horizontal bar chart
-    bars = ax.barh(names, counts, color="#007bff", alpha=0.7)
-
-    # Add value labels
-    for bar in bars:
-        width = bar.get_width()
-        ax.text(
-            width + max(counts) * 0.02,
-            bar.get_y() + bar.get_height() / 2,
-            f"{int(width)}",
-            ha="left",
-            va="center",
-            fontsize=9,
-        )
-
-    # Set labels and title
-    ax.set_xlabel("Count")
-    ax.set_ylabel("Reaction")
-    ax.set_title(title)
-
-    # Set y-axis to show reaction names
-    ax.set_yticks(range(len(names)))
-    ax.set_yticklabels([f":{name}:" for name in names])
-
-    # Set x-axis to start at 0
-    ax.set_xlim(left=0)
-
-    # Add grid
-    ax.grid(axis="x", linestyle="--", alpha=0.7)
-
-    # Tight layout
-    fig.tight_layout()
-
-    return fig
-
-
-def create_user_activity_chart(
-    user_data: List[Dict[str, Any]],
-    title: str = "Top Active Users",
-    figsize: Tuple[int, int] = (10, 6),
-) -> Figure:
-    """
-    Create user activity chart
-
-    Args:
-        user_data: User data (list of dicts with 'username' and 'message_count')
-        title: Chart title
-        figsize: Figure size
-
-    Returns:
-        Figure: Matplotlib figure
-    """
-    # Create figure
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Prepare data
-    usernames = [item["username"] for item in user_data]
-    counts = [item["message_count"] for item in user_data]
-
-    # Create horizontal bar chart
-    bars = ax.barh(usernames, counts, color="#007bff", alpha=0.7)
-
-    # Add value labels
-    for bar in bars:
-        width = bar.get_width()
-        ax.text(
-            width + max(counts) * 0.02,
-            bar.get_y() + bar.get_height() / 2,
-            f"{int(width)}",
-            ha="left",
-            va="center",
-            fontsize=9,
-        )
-
-    # Set labels and title
-    ax.set_xlabel("Number of Messages")
-    ax.set_ylabel("User")
-    ax.set_title(title)
-
-    # Set x-axis to start at 0
-    ax.set_xlim(left=0)
-
-    # Add grid
-    ax.grid(axis="x", linestyle="--", alpha=0.7)
-
-    # Tight layout
-    fig.tight_layout()
 
     return fig
 
