@@ -194,7 +194,7 @@ def generate_weekly_report(
         kibana_capture = KibanaCapture()
 
         # Define dashboard ID as a variable
-        WEEKLY_DASHBOARD_ID = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", "slack-weekly-dashboard")
+        WEEKLY_DASHBOARD_ID = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", f"{channel_name}-weekly")
 
         # Capture dashboard
         dashboard_path = str(reports_dir / "kibana_weekly_dashboard.png")
@@ -213,7 +213,7 @@ def generate_weekly_report(
             details={
                 "channel": channel_name,
                 "period": f"{stats['start_date']} to {stats['end_date']}",
-                "dashboard_id": os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", "slack-weekly-dashboard"),
+                "dashboard_id": os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", f"{channel_name}-weekly"),
                 "error": str(e),
             },
         )
