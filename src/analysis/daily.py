@@ -3,7 +3,7 @@ Provides functionality for generating daily reports.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from src.es_client.client import ElasticsearchClient
 from src.utils.logger import get_logger
@@ -110,51 +110,9 @@ def get_daily_stats(
         count = bucket.get("doc_count", 0)
         hourly_counts[hour] = count
 
-    # Get user stats
-    user_stats = get_user_stats(es_client, index_name, date_str, (date + timedelta(days=1)).strftime("%Y-%m-%d"))
-
     return {
         "date": date_str,
         "message_count": message_count,
         "reaction_count": int(reaction_count),
-        "user_stats": user_stats,
         "hourly_message_counts": hourly_counts,
     }
-
-
-def get_user_stats(
-    es_client: ElasticsearchClient, index_name: str, start_date: str, end_date: str
-) -> List[Dict[str, Any]]:
-    """
-    Get user statistics for the day
-
-    Args:
-        es_client: Elasticsearch client
-        index_name: Index name
-        start_date: Start date string (YYYY-MM-DD)
-        end_date: End date string (YYYY-MM-DD)
-
-    Returns:
-        List[Dict[str, Any]]: List of user statistics
-    """
-    # Query to get user message counts
-    query = {
-        "size": 0,
-        "query": {"range": {"timestamp": {"gte": start_date, "lt": end_date}}},
-        "aggs": {"users": {"terms": {"field": "user", "size": 10, "order": {"_count": "desc"}}}},
-    }
-
-    # Execute search
-    response = es_client.search(index_name, query)
-
-    # Process results
-    user_stats = []
-    for bucket in response.get("aggregations", {}).get("users", {}).get("buckets", []):
-        user_stats.append(
-            {
-                "username": bucket.get("key", "unknown"),
-                "message_count": bucket.get("doc_count", 0),
-            }
-        )
-
-    return user_stats

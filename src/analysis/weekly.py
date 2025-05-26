@@ -74,25 +74,6 @@ def get_weekly_stats(
     total_messages = sum(stats["message_count"] for stats in daily_stats)
     total_reactions = sum(stats["reaction_count"] for stats in daily_stats)
 
-    # Aggregate user stats
-    user_stats = {}
-    for stats in daily_stats:
-        for user in stats["user_stats"]:
-            username = user["username"]
-            count = user["message_count"]
-            if username in user_stats:
-                user_stats[username] += count
-            else:
-                user_stats[username] = count
-
-    # Sort users by message count
-    top_users = [
-        {"username": username, "message_count": count}
-        for username, count in sorted(user_stats.items(), key=lambda x: x[1], reverse=True)
-    ][
-        :10
-    ]  # Top 10
-
     # Get hourly message counts for each day
     hourly_counts = []
     for stats in daily_stats:
@@ -107,7 +88,6 @@ def get_weekly_stats(
         "message_count": total_messages,
         "reaction_count": total_reactions,
         "top_posts": top_posts,
-        "user_stats": top_users,
         "hourly_message_counts": hourly_counts,
         "error_dates": error_dates,  # Add error dates to the result
         "daily_stats": daily_stats,  # Add daily stats to the result
@@ -220,41 +200,3 @@ def get_top_posts_with_reactions(
     # Sort by total reaction count and limit
     top_posts.sort(key=lambda x: x["reaction_count"], reverse=True)
     return top_posts[:limit]
-
-
-def get_user_stats(
-    es_client: ElasticsearchClient, index_name: str, start_date: str, end_date: str
-) -> List[Dict[str, Any]]:
-    """
-    Get user statistics for the week
-
-    Args:
-        es_client: Elasticsearch client
-        index_name: Index name
-        start_date: Start date string (YYYY-MM-DD)
-        end_date: End date string (YYYY-MM-DD)
-
-    Returns:
-        List[Dict[str, Any]]: List of user statistics
-    """
-    # Query to get user message counts
-    query = {
-        "size": 0,
-        "query": {"range": {"timestamp": {"gte": start_date, "lte": end_date}}},
-        "aggs": {"users": {"terms": {"field": "user", "size": 10, "order": {"_count": "desc"}}}},
-    }
-
-    # Execute search
-    response = es_client.search(index_name, query)
-
-    # Process results
-    user_stats = []
-    for bucket in response.get("aggregations", {}).get("users", {}).get("buckets", []):
-        user_stats.append(
-            {
-                "username": bucket.get("key", "unknown"),
-                "message_count": bucket.get("doc_count", 0),
-            }
-        )
-
-    return user_stats

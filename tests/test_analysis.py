@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.analysis.daily import get_daily_stats, get_user_stats
+from src.analysis.daily import get_daily_stats
 from src.analysis.visualization import (
     create_hourly_distribution_chart,
     create_hourly_line_chart,
@@ -24,20 +24,17 @@ class TestDailyAnalysis:
         mock_client = Mock()
         # Configure mock responses to simulate Elasticsearch behavior
         mock_client.search.return_value = {
-            "hits": {"total": {"value": 100}},
+            "took": 1,
+            "timed_out": False,
+            "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0},
+            "hits": {"total": {"value": 13, "relation": "eq"}, "max_score": None, "hits": []},
             "aggregations": {
-                "hourly": {
-                    "buckets": [
-                        {"key_as_string": "2024-01-01 00:00:00", "doc_count": 10},
-                        {"key_as_string": "2024-01-01 01:00:00", "doc_count": 20},
-                    ]
-                },
-                "users": {
-                    "buckets": [
-                        {"key": "user1", "doc_count": 50},
-                        {"key": "user2", "doc_count": 30},
-                    ]
-                },
+                "reactions_nested": {
+                    "doc_count": 3,
+                    "total_count": {
+                        "value": 3.0,
+                    },
+                }
             },
         }
         return mock_client
@@ -54,7 +51,6 @@ class TestDailyAnalysis:
         assert "date" in result
         assert "message_count" in result
         assert "reaction_count" in result
-        assert "user_stats" in result
         assert "hourly_message_counts" in result
 
         # Verify ES client method calls
@@ -64,36 +60,11 @@ class TestDailyAnalysis:
         assert result["date"] == start_date.strftime("%Y-%m-%d")
 
         # Verify message count
-        assert result["message_count"] == 100
+        assert result["message_count"] == 13
 
         # Verify hourly message counts
         assert len(result["hourly_message_counts"]) == 24
         assert isinstance(result["hourly_message_counts"], list)
-
-    def test_get_user_stats(self, mock_es_client, sample_date_range):
-        """Test get_user_stats function with mocked ES client"""
-        start_date, end_date = sample_date_range
-        index_name = "test-index"
-
-        result = get_user_stats(
-            mock_es_client,
-            index_name,
-            start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d"),
-        )
-
-        # Verify basic structure
-        assert isinstance(result, list)
-        assert len(result) == 2
-
-        # Verify user statistics
-        assert result[0]["username"] == "user1"
-        assert result[0]["message_count"] == 50
-        assert result[1]["username"] == "user2"
-        assert result[1]["message_count"] == 30
-
-        # Verify ES client method call
-        mock_es_client.search.assert_called_once()
 
 
 class TestVisualization:

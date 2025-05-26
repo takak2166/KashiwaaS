@@ -24,12 +24,6 @@ def format_daily_report(stats: Dict[str, Any]) -> str:
     message += f"Total Messages: {stats['message_count']}\n"
     message += f"Total Reactions: {stats['reaction_count']}\n\n"
 
-    # Add top users
-    if stats.get("user_stats"):
-        message += "Top Users:\n"
-        for user in stats["user_stats"][:5]:
-            message += f"- {user['username']}: {user['message_count']} messages\n"
-
     return message
 
 

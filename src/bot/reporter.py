@@ -224,7 +224,6 @@ def generate_weekly_report(
         end_date=stats["end_date"],
         total_messages=stats["message_count"],
         total_reactions=stats["reaction_count"],
-        top_users=stats["user_stats"],
         top_posts=stats["top_posts"],
     )
 
