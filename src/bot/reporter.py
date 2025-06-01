@@ -27,7 +27,10 @@ logger = get_logger(__name__)
 
 
 def generate_daily_report(
-    channel_id: Optional[str] = None, target_date: Optional[datetime] = None, dry_run: bool = False
+    channel_id: Optional[str] = None,
+    channel_name: Optional[str] = None,
+    target_date: Optional[datetime] = None,
+    dry_run: bool = False,
 ) -> None:
     """
     Generate daily report
@@ -37,26 +40,27 @@ def generate_daily_report(
         target_date: Target date (default: yesterday)
         dry_run: Whether to only display report without posting
     """
-    # Initialize Slack client
-    client = SlackClient(channel_id=channel_id)
+    if not dry_run:
+        # Initialize Slack client
+        client = SlackClient(channel_id=channel_id)
 
-    # Get channel information
-    try:
-        channel_info = client.get_channel_info()
-        channel_name = channel_info.get("name", "unknown")
-        logger.info(f"Target channel: {channel_name} ({client.channel_id})")
-    except Exception as e:
-        error_msg = f"Failed to get channel info: {e}"
-        logger.error(error_msg)
+        # Get channel information
+        try:
+            channel_info = client.get_channel_info()
+            channel_name = channel_info.get("name", "unknown")
+            logger.info(f"Target channel: {channel_name} ({client.channel_id})")
+        except Exception as e:
+            error_msg = f"Failed to get channel info: {e}"
+            logger.error(error_msg)
 
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Daily Report - Channel Info Error",
-            details={"channel_id": client.channel_id, "error": str(e)},
-        )
-        return
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Daily Report - Channel Info Error",
+                details={"channel_id": client.channel_id, "error": str(e)},
+            )
+            return
 
     # Set target_date to yesterday if not specified
     if target_date is None:
@@ -73,13 +77,14 @@ def generate_daily_report(
         error_msg = f"Failed to get daily stats: {e}"
         logger.error(error_msg)
 
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Daily Report - Stats Error",
-            details={"channel": channel_name, "date": target_date.strftime("%Y-%m-%d"), "error": str(e)},
-        )
+        if not dry_run:
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Daily Report - Stats Error",
+                details={"channel": channel_name, "date": target_date.strftime("%Y-%m-%d"), "error": str(e)},
+            )
         return
 
     # Format report message
@@ -111,7 +116,10 @@ def generate_daily_report(
 
 
 def generate_weekly_report(
-    channel_id: Optional[str] = None, end_date: Optional[datetime] = None, dry_run: bool = False
+    channel_id: Optional[str] = None,
+    channel_name: Optional[str] = None,
+    end_date: Optional[datetime] = None,
+    dry_run: bool = False,
 ) -> None:
     """
     Generate weekly report
@@ -121,26 +129,27 @@ def generate_weekly_report(
         end_date: End date (default: yesterday)
         dry_run: Whether to only display report without posting
     """
-    # Initialize Slack client
-    client = SlackClient(channel_id=channel_id)
+    if not dry_run:
+        # Initialize Slack client
+        client = SlackClient(channel_id=channel_id)
 
-    # Get channel information
-    try:
-        channel_info = client.get_channel_info()
-        channel_name = channel_info.get("name", "unknown")
-        logger.info(f"Target channel: {channel_name} ({client.channel_id})")
-    except Exception as e:
-        error_msg = f"Failed to get channel info: {e}"
-        logger.error(error_msg)
+        # Get channel information
+        try:
+            channel_info = client.get_channel_info()
+            channel_name = channel_info.get("name", "unknown")
+            logger.info(f"Target channel: {channel_name} ({client.channel_id})")
+        except Exception as e:
+            error_msg = f"Failed to get channel info: {e}"
+            logger.error(error_msg)
 
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Weekly Report - Channel Info Error",
-            details={"channel_id": client.channel_id, "error": str(e)},
-        )
-        return
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Weekly Report - Channel Info Error",
+                details={"channel_id": client.channel_id, "error": str(e)},
+            )
+            return
 
     # Get weekly stats
     try:
@@ -150,17 +159,18 @@ def generate_weekly_report(
         error_msg = f"Failed to get weekly stats: {e}"
         logger.error(error_msg)
 
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Weekly Report - Stats Error",
-            details={
-                "channel": channel_name,
-                "period": f"{stats.get('start_date', 'unknown')} to {stats.get('end_date', 'unknown')}",
-                "error": str(e),
-            },
-        )
+        if not dry_run:
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Weekly Report - Stats Error",
+                details={
+                    "channel": channel_name,
+                    "period": f"{stats.get('start_date', 'unknown')} to {stats.get('end_date', 'unknown')}",
+                    "error": str(e),
+                },
+            )
         return
 
     # Create output directory
@@ -176,16 +186,17 @@ def generate_weekly_report(
         logger.error(error_msg)
 
         # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.WARNING,  # WARNING because we can continue without charts
-            title="Weekly Report - Chart Generation Error",
-            details={
-                "channel": channel_name,
-                "period": f"{stats['start_date']} to {stats['end_date']}",
-                "error": str(e),
-            },
-        )
+        if not dry_run:
+            alert(
+                message=error_msg,
+                level=AlertLevel.WARNING,  # WARNING because we can continue without charts
+                title="Weekly Report - Chart Generation Error",
+                details={
+                    "channel": channel_name,
+                    "period": f"{stats['start_date']} to {stats['end_date']}",
+                    "error": str(e),
+                },
+            )
         chart_paths = {}
 
     # Capture Kibana dashboard if available
@@ -205,18 +216,19 @@ def generate_weekly_report(
         error_msg = f"Failed to capture Kibana dashboard: {e}"
         logger.error(error_msg)
 
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.WARNING,  # WARNING because we can continue without Kibana screenshot
-            title="Weekly Report - Kibana Capture Error",
-            details={
-                "channel": channel_name,
-                "period": f"{stats['start_date']} to {stats['end_date']}",
-                "dashboard_id": os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", f"{channel_name}-weekly"),
-                "error": str(e),
-            },
-        )
+        if not dry_run:
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.WARNING,  # WARNING because we can continue without Kibana screenshot
+                title="Weekly Report - Kibana Capture Error",
+                details={
+                    "channel": channel_name,
+                    "period": f"{stats['start_date']} to {stats['end_date']}",
+                    "dashboard_id": os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", f"{channel_name}-weekly"),
+                    "error": str(e),
+                },
+            )
 
     # Format report message
     message = format_weekly_report(

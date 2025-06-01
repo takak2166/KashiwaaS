@@ -8,9 +8,6 @@ until curl -s http://elasticsearch:9200 > /dev/null; do
     sleep 5
 done
 
-echo "Elasticsearch is up - setting up indices"
-python scripts/setup_indices.py
-
 # Start cron service if requested
 if [ "$1" = "cron" ]; then
     echo "Starting cron service"

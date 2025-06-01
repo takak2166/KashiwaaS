@@ -1,4 +1,4 @@
-.PHONY: lint
+.PHONY: lint test
 
 lint:
 	@echo "Running black..."
@@ -6,4 +6,8 @@ lint:
 	@echo "Running isort..."
 	poetry run isort .
 	@echo "Running flake8..."
-	poetry run flake8 . 
+	poetry run flake8 .
+
+test:
+	@echo "Running pytest..."
+	poetry run pytest

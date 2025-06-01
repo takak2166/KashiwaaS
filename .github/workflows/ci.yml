@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  lint_and_test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        run: |
+          pip install poetry==2.1.1
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run linting
+        run: poetry run make lint
+
+      - name: Run tests
+        run: poetry run make test
+
+  dry-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Compose
+        run: |
+          cat << EOF > .env
+          ELASTICSEARCH_HOST=http://elasticsearch:9200
+          LOG_LEVEL=DEBUG
+          KIBANA_HOST=http://kibana:5601
+          CHROME_HOST=http://chrome:4444
+          EOF
+          docker compose up --build -d --wait
+          docker compose cp .env app:/app/.env
+          docker compose ps
+
+      - name: Wait for services to be ready
+        run: |
+          for i in {1..30}; do
+            if docker compose exec app curl -s http://elasticsearch:9200 > /dev/null; then
+              echo "Elasticsearch is available"
+              break
+            fi
+            echo "Elasticsearch is unavailable - sleeping... $i"
+            sleep 2
+          done
+
+      - name: Setup indices
+        run: |
+          docker compose exec app poetry run python scripts/setup_indices.py --channel dummy-channel
+
+      - name: Run fetch command with dummy data
+        run: docker compose exec app poetry run python src/main.py fetch --dummy
+
+      - name: Dry-run report command
+        run: docker compose exec app poetry run python src/main.py report --channel dummy-channel --dry-run
+      
+      - name: Clean up
+        if: always()
+        run: docker compose -f docker-compose.yml down --rmi all --volumes --remove-orphans

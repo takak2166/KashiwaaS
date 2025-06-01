@@ -76,7 +76,7 @@ class ElasticsearchClient:
             user: Elasticsearch username (if not specified, retrieved from environment variables)
             password: Elasticsearch password (if not specified, retrieved from environment variables)
         """
-        self.host = host or (config.elasticsearch.host if config else "http://elasticsearch:9200")
+        self.host = host or (config.elasticsearch.host if config else "http://localhost:9200")
         self.user = user or (config.elasticsearch.user if config else None)
         self.password = password or (config.elasticsearch.password if config else None)
 
@@ -86,6 +86,7 @@ class ElasticsearchClient:
             conn_options["basic_auth"] = (self.user, self.password)
 
         # Initialize Elasticsearch client
+        logger.info(f"Initializing Elasticsearch client with host: {self.host}")
         self.client = Elasticsearch(self.host, **conn_options)
 
         # Check connection

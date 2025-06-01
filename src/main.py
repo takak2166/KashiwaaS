@@ -39,6 +39,7 @@ def parse_args():
     fetch_parser.add_argument(
         "--batch-size", type=int, default=500, help="Batch size for Elasticsearch bulk indexing (default: 500)"
     )
+    fetch_parser.add_argument("--dummy", action="store_true", help="Use dummy data instead of fetching from Slack")
 
     # report command
     report_parser = subparsers.add_parser("report", help="Generate and post report to Slack")
@@ -68,6 +69,7 @@ def fetch_messages(
     fetch_all: bool = False,
     store_messages: bool = True,
     batch_size: int = 500,
+    use_dummy: bool = False,
 ):
     """
     Fetch Slack messages for the specified period and process them
@@ -80,6 +82,7 @@ def fetch_messages(
         fetch_all: Whether to fetch all messages (ignores days and end_date)
         store_messages: Whether to store messages in Elasticsearch
         batch_size: Batch size for Elasticsearch bulk indexing
+        use_dummy: Whether to use dummy data instead of fetching from Slack
     """
     # Set end_date to current time if not specified
     if end_date is None:
@@ -88,65 +91,85 @@ def fetch_messages(
     # Calculate start_date based on days or set to None for all messages
     start_date = None if fetch_all else end_date - timedelta(days=days)
 
-    if fetch_all:
-        logger.info("Fetching all messages from channel")
+    if use_dummy:
+        logger.info("Using mock Slack data for testing")
+        channel_name = "dummy-channel"
+        # Generate dummy messages directly
+        dummy_messages = [
+            {
+                "type": "message",
+                "user": f"U{i}",
+                "username": f"User{i}",
+                "text": f"Dummy message {i}",
+                "ts": f"{datetime.now().timestamp() - (i * 3600):.6f}",
+                "client_msg_id": f"dummy-msg-{i}",
+                "team": "TH6LHJ38S",
+                "reactions": [
+                    {"name": "thumbsup", "count": 3, "users": ["U1", "U2", "U3"]},
+                    {"name": "heart", "count": 2, "users": ["U1", "U2"]},
+                ],
+                "blocks": [
+                    {
+                        "type": "rich_text",
+                        "block_id": f"dummy-block-{i}",
+                        "elements": [
+                            {"type": "rich_text_section", "elements": [{"type": "text", "text": f"Dummy message {i}"}]}
+                        ],
+                    }
+                ],
+            }
+            for i in range(10)
+        ]
+        messages = [SlackMessage.from_slack_data("dummy-channel", msg) for msg in dummy_messages]
     else:
-        logger.info(
-            f"Fetching messages for {days} days "
-            f"(from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})"
-        )
+        client = SlackClient(channel_id=channel_id)
+        # Get channel information
+        try:
+            channel_info = client.get_channel_info()
+            channel_name = channel_info.get("name", "unknown")
+            logger.info(f"Target channel: {channel_name} ({client.channel_id})")
+        except Exception as e:
+            error_msg = f"Failed to get channel info: {e}"
+            logger.error(error_msg)
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Channel Info Error",
+                details={"channel_id": client.channel_id, "error": str(e)},
+            )
+            return
 
-    # Initialize Slack client
-    client = SlackClient(channel_id=channel_id)
+        # Fetch messages
+        try:
+            messages = list(_fetch_slack_messages(client, start_date, end_date, include_threads))
+            logger.info(f"Fetched {len(messages)} messages from Slack")
+        except Exception as e:
+            error_msg = f"Error during message fetching: {e}"
+            logger.error(error_msg)
+            # Send alert
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Message Fetch Error",
+                details={
+                    "channel": channel_name,
+                    "start_date": start_date.isoformat() if start_date else "None",
+                    "end_date": end_date.isoformat() if end_date else "None",
+                    "error": str(e),
+                },
+            )
+            raise
 
-    # Get channel information
-    try:
-        channel_info = client.get_channel_info()
-        channel_name = channel_info.get("name", "unknown")
-        logger.info(f"Target channel: {channel_name} ({client.channel_id})")
-    except Exception as e:
-        error_msg = f"Failed to get channel info: {e}"
-        logger.error(error_msg)
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Channel Info Error",
-            details={"channel_id": client.channel_id, "error": str(e)},
-        )
-        return
+    # Process messages
+    if store_messages:
+        process_messages(messages, channel_name, batch_size)
+    else:
+        # Just log the messages
+        for message in messages:
+            log_message(message)
 
-    # Fetch messages
-    try:
-        messages = list(_fetch_slack_messages(client, start_date, end_date, include_threads))
-        logger.info(f"Fetched {len(messages)} messages from Slack")
-
-        # Process messages
-        if store_messages:
-            process_messages(messages, channel_name, batch_size)
-        else:
-            # Just log the messages
-            for message in messages:
-                log_message(message)
-
-        logger.info(f"Completed. Total {len(messages)} messages processed")
-
-    except Exception as e:
-        error_msg = f"Error during message fetching: {e}"
-        logger.error(error_msg)
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Message Fetch Error",
-            details={
-                "channel": channel_name,
-                "start_date": start_date.isoformat() if start_date else "None",
-                "end_date": end_date.isoformat() if end_date else "None",
-                "error": str(e),
-            },
-        )
-        raise
+    logger.info(f"Completed. Total {len(messages)} messages processed")
 
 
 def _fetch_slack_messages(
@@ -318,6 +341,7 @@ def main():
             fetch_all=args.all,
             store_messages=not args.no_store,
             batch_size=args.batch_size,
+            use_dummy=args.dummy,
         )
 
     elif args.command == "report":
@@ -332,9 +356,16 @@ def main():
 
         # Generate report
         if args.type == "daily":
-            generate_daily_report(channel_id=args.channel, target_date=target_date, dry_run=args.dry_run)
+            generate_daily_report(
+                channel_id=args.channel,
+                channel_name=args.channel,
+                target_date=target_date,
+                dry_run=args.dry_run,
+            )
         elif args.type == "weekly":
-            generate_weekly_report(channel_id=args.channel, end_date=target_date, dry_run=args.dry_run)
+            generate_weekly_report(
+                channel_id=args.channel, channel_name=args.channel, end_date=target_date, dry_run=args.dry_run
+            )
         else:
             logger.error(f"Unknown report type: {args.type}")
             sys.exit(1)

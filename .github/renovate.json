@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["poetry"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "poetry dependencies",
+      "groupSlug": "poetry-deps",
+      "automerge": true,
+      "automergeType": "branch"
+    }
+  ],
+  "schedule": ["before 3am on monday"],
+  "labels": ["dependencies"],
+  "commitMessagePrefix": "chore(deps):",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "to {{newVersion}}",
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 10
+} 

@@ -26,44 +26,46 @@ class SlackClient:
     Includes handling for pagination and rate limiting.
     """
 
-    def __init__(self, token: Optional[str] = None, channel_id: Optional[str] = None):
+    def __init__(self, token: Optional[str] = None, channel_id: Optional[str] = None, dummy: bool = False):
         """
         Initialize the SlackClient
 
         Args:
             token: Slack API Token (if not specified, retrieved from environment variables)
             channel_id: Channel ID to fetch from (if not specified, retrieved from environment variables)
+            dummy: Whether to use dummy data instead of real Slack API
         """
+        self.dummy = dummy
         self.token = token or (config.slack.api_token if config else None)
-        if not self.token:
-            raise ValueError("Slack API token is required")
+
+        if not self.dummy and not self.token:
+            raise ValueError("Slack API token is required when not in dummy mode")
 
         self.channel_id = channel_id or (config.slack.channel_id if config else None)
         if not self.channel_id:
             raise ValueError("Slack channel ID is required")
 
-        self.client = WebClient(token=self.token)
-        logger.info(f"SlackClient initialized for channel {self.channel_id}")
+        if not self.dummy:
+            self.client = WebClient(token=self.token)
+            logger.info(f"SlackClient initialized for channel {self.channel_id}")
 
-        try:
-            channel_info = self.get_channel_info()
-            logger.info(f"Successfully validated channel: {channel_info.get('name', 'unknown')} ({self.channel_id})")
-        except Exception as e:
-            logger.warning(f"Channel validation failed: {e}")
-            logger.warning("This may cause issues with API calls that require a valid channel ID")
+            try:
+                channel_info = self.get_channel_info()
+                logger.info(
+                    f"Successfully validated channel: " f"{channel_info.get('name', 'unknown')} ({self.channel_id})"
+                )
+            except Exception as e:
+                logger.warning(f"Channel validation failed: {e}")
+                logger.warning("This may cause issues with API calls that require a valid channel ID")
+        else:
+            logger.info("SlackClient initialized in dummy mode")
 
-    def _handle_rate_limit(self, e: SlackApiError) -> None:
-        """
-        Handle rate limit error
-
-        Args:
-            e: SlackApiError instance
-        """
-        if hasattr(e, "response") and e.response.status_code == 429:
-            retry_after = int(e.response.headers.get("Retry-After", 1))
-            logger.warning(f"Rate limited. Waiting for {retry_after} seconds")
+    def _handle_rate_limit(self, error: SlackApiError) -> None:
+        """Handle rate limit errors"""
+        if error.response["error"] == "ratelimited":
+            retry_after = int(error.response.headers.get("Retry-After", 1))
+            logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
             time.sleep(retry_after)
-            # This will be retried by the decorator
 
     @retry_with_backoff(
         max_retries=3,

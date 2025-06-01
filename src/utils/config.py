@@ -76,13 +76,8 @@ def load_config() -> AppConfig:
     slack_channel = os.getenv("SLACK_CHANNEL_ID")
     slack_alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID")
 
-    if not slack_token:
-        raise ValueError("SLACK_API_TOKEN environment variable is required")
-    if not slack_channel:
-        raise ValueError("SLACK_CHANNEL_ID environment variable is required")
-
     # Load Elasticsearch configuration
-    es_host = os.getenv("ELASTICSEARCH_HOST", "http://elasticsearch:9200")
+    es_host = os.getenv("ELASTICSEARCH_HOST")
     es_user = os.getenv("ELASTICSEARCH_USER")
     es_password = os.getenv("ELASTICSEARCH_PASSWORD")
 
