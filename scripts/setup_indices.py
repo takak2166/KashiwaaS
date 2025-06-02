@@ -5,7 +5,6 @@ Setup Elasticsearch Indices
 This script sets up the Elasticsearch index templates and indices for Slack messages.
 """
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -103,8 +102,8 @@ def main():
 
     # Initialize Elasticsearch client
     try:
-        logger.info(f"Initializing Elasticsearch client with host: {os.getenv('ELASTICSEARCH_HOST')}")
-        es_client = ElasticsearchClient(host=os.getenv("ELASTICSEARCH_HOST"))
+        logger.info(f"Initializing Elasticsearch client with host: {config.elasticsearch.host}")
+        es_client = ElasticsearchClient(host=config.elasticsearch.host)
     except Exception as e:
         logger.error(f"Failed to connect to Elasticsearch: {e}")
         return 1

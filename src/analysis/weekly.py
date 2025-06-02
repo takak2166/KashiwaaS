@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from src.analysis.daily import get_daily_stats
 from src.es_client.client import ElasticsearchClient
+from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,6 +47,8 @@ def get_weekly_stats(
     end_date_str = end_date.strftime("%Y-%m-%d")
 
     # Get index name
+    if not channel_name:
+        channel_name = config.slack_channel_name
     index_name = f"slack-{channel_name}"
 
     # Get daily stats for each day in the week

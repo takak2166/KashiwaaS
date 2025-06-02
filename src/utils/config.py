@@ -30,6 +30,7 @@ class SlackConfig:
 
     api_token: str
     channel_id: str
+    channel_name: str
     alert_channel_id: Optional[str] = None
 
 
@@ -52,11 +53,23 @@ class ElasticsearchConfig:
 
 
 @dataclass
+class KibanaConfig:
+    """Kibana configuration"""
+
+    host: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    weekly_dashboard_id: Optional[str] = None
+
+
+@dataclass
 class AppConfig:
     """Application-wide configuration"""
 
     slack: SlackConfig
     elasticsearch: ElasticsearchConfig
+    kibana: KibanaConfig
+    selenium_host: str
     timezone: str
     alert: AlertConfig
 
@@ -74,12 +87,22 @@ def load_config() -> AppConfig:
     # Load Slack configuration
     slack_token = os.getenv("SLACK_API_TOKEN")
     slack_channel = os.getenv("SLACK_CHANNEL_ID")
+    slack_channel_name = os.getenv("SLACK_CHANNEL_NAME")
     slack_alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID")
 
     # Load Elasticsearch configuration
     es_host = os.getenv("ELASTICSEARCH_HOST")
     es_user = os.getenv("ELASTICSEARCH_USER")
     es_password = os.getenv("ELASTICSEARCH_PASSWORD")
+
+    # Load Kibana configuration
+    kibana_host = os.getenv("KIBANA_HOST")
+    kibana_username = os.getenv("KIBANA_USERNAME")
+    kibana_password = os.getenv("KIBANA_PASSWORD")
+    kibana_weekly_dashboard_id = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID")
+
+    # Load Selenium configuration
+    selenium_host = os.getenv("SELENIUM_HOST")
 
     # Load Alert configuration
     alert_min_level = os.getenv("ALERT_MIN_LEVEL", "WARNING")
@@ -93,6 +116,7 @@ def load_config() -> AppConfig:
         slack=SlackConfig(
             api_token=slack_token,
             channel_id=slack_channel,
+            channel_name=slack_channel_name,
             alert_channel_id=slack_alert_channel,
         ),
         elasticsearch=ElasticsearchConfig(
@@ -100,6 +124,13 @@ def load_config() -> AppConfig:
             user=es_user,
             password=es_password,
         ),
+        kibana=KibanaConfig(
+            host=kibana_host,
+            username=kibana_username,
+            password=kibana_password,
+            weekly_dashboard_id=kibana_weekly_dashboard_id,
+        ),
+        selenium_host=selenium_host,
         timezone=timezone,
         alert=AlertConfig(
             min_level=alert_min_level,

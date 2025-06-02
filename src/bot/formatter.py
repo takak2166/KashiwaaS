@@ -2,7 +2,7 @@
 Provides functionality for formatting messages.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from src.utils.logger import get_logger
 
@@ -32,8 +32,8 @@ def format_weekly_report(
     end_date: str,
     total_messages: int,
     total_reactions: int,
-    top_users: List[Dict[str, Any]],
-    top_posts: List[Dict[str, Any]],
+    top_users: Optional[List[Dict[str, Any]]] = None,
+    top_posts: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """
     Format weekly report message

@@ -94,6 +94,7 @@ def fetch_messages(
     if use_dummy:
         logger.info("Using mock Slack data for testing")
         channel_name = "dummy-channel"
+        date = datetime.now() - timedelta(days=1)
         # Generate dummy messages directly
         dummy_messages = [
             {
@@ -101,11 +102,11 @@ def fetch_messages(
                 "user": f"U{i}",
                 "username": f"User{i}",
                 "text": f"Dummy message {i}",
-                "ts": f"{datetime.now().timestamp() - (i * 3600):.6f}",
+                "ts": f"{date.timestamp() - (i * 3600):.6f}",
                 "client_msg_id": f"dummy-msg-{i}",
                 "team": "TH6LHJ38S",
                 "reactions": [
-                    {"name": "thumbsup", "count": 3, "users": ["U1", "U2", "U3"]},
+                    {"name": "thumbsup", "count": i, "users": [f"U{n}" for n in range(i)]},
                     {"name": "heart", "count": 2, "users": ["U1", "U2"]},
                 ],
                 "blocks": [

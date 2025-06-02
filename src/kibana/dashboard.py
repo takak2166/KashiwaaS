@@ -4,12 +4,13 @@ Provides functionality for managing Kibana dashboards
 """
 
 import json
-import os
 from typing import Any, Dict, Optional
 
 import requests
 
+from src.utils.config import config
 from src.utils.logger import get_logger
+
 
 logger = get_logger(__name__)
 
@@ -35,9 +36,9 @@ class KibanaDashboard:
             username: Kibana username (if authentication is enabled)
             password: Kibana password (if authentication is enabled)
         """
-        self.host = host or os.getenv("KIBANA_HOST", "http://kibana:5601")
-        self.username = username or os.getenv("KIBANA_USERNAME")
-        self.password = password or os.getenv("KIBANA_PASSWORD")
+        self.host = host or config.kibana.host
+        self.username = username or config.kibana.username
+        self.password = password or config.kibana.password
 
         # Base URL for Kibana API
         self.api_base = f"{self.host}/api"

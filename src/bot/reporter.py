@@ -3,7 +3,6 @@ Reporter Module
 Provides functionality for generating and posting reports to Slack
 """
 
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -20,6 +19,7 @@ from src.bot.formatter import (
 )
 from src.kibana.capture import KibanaCapture
 from src.slack.client import SlackClient
+from src.utils.config import config
 from src.utils.date_utils import get_current_time
 from src.utils.logger import get_logger
 
@@ -205,11 +205,11 @@ def generate_weekly_report(
         kibana_capture = KibanaCapture()
 
         # Define dashboard ID as a variable
-        WEEKLY_DASHBOARD_ID = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", f"{channel_name}-weekly")
+        weekly_dashboard_id = config.kibana.weekly_dashboard_id or f"{channel_name}-weekly"
 
         # Capture dashboard
         dashboard_path = str(reports_dir / "kibana_weekly_dashboard.png")
-        kibana_capture.capture_dashboard(WEEKLY_DASHBOARD_ID, dashboard_path, time_range="7d", wait_for_render=10)
+        kibana_capture.capture_dashboard(weekly_dashboard_id, dashboard_path, time_range="7d", wait_for_render=10)
         kibana_screenshot = dashboard_path
         logger.info(f"Captured Kibana dashboard to {kibana_screenshot}")
     except Exception as e:
@@ -225,7 +225,7 @@ def generate_weekly_report(
                 details={
                     "channel": channel_name,
                     "period": f"{stats['start_date']} to {stats['end_date']}",
-                    "dashboard_id": os.getenv("KIBANA_WEEKLY_DASHBOARD_ID", f"{channel_name}-weekly"),
+                    "dashboard_id": weekly_dashboard_id,
                     "error": str(e),
                 },
             )

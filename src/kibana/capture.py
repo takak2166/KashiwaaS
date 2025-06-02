@@ -16,6 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from src.bot.alerter import AlertLevel, alert
+from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -43,17 +44,22 @@ class KibanaCapture:
         Initialize Kibana Dashboard Capture
 
         Args:
-            kibana_host: Kibana host URL (default: http://kibana:5601)
-            selenium_host: Selenium host URL (default: http://chrome:4444/wd/hub)
+            kibana_host: Kibana host URL
+            selenium_host: Selenium host URL
             username: Kibana username (if authentication is enabled)
             password: Kibana password (if authentication is enabled)
             wait_time: Maximum wait time in seconds for page loading
         """
-        self.kibana_host = kibana_host or os.getenv("KIBANA_HOST", "http://kibana:5601")
-        self.selenium_host = selenium_host or os.getenv("SELENIUM_HOST", "http://chrome:4444/wd/hub")
-        self.username = username or os.getenv("KIBANA_USERNAME")
-        self.password = password or os.getenv("KIBANA_PASSWORD")
+        self.kibana_host = kibana_host or config.kibana.host
+        self.selenium_host = selenium_host or config.selenium_host
+        self.username = username or config.kibana.username
+        self.password = password or config.kibana.password
         self.wait_time = wait_time
+
+        if not self.kibana_host:
+            raise ValueError("Kibana host is required")
+        if not self.selenium_host:
+            raise ValueError("Selenium host is required")
 
         logger.info(f"Initialized Kibana Dashboard Capture with Kibana host: {self.kibana_host}")
         logger.info(f"Using Selenium host: {self.selenium_host}")
