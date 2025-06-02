@@ -20,5 +20,15 @@
   "commitMessageTopic": "{{depName}}",
   "commitMessageExtra": "to {{newVersion}}",
   "prHourlyLimit": 2,
-  "prConcurrentLimit": 10
+  "prConcurrentLimit": 10,
+  "regexManagers": [
+    {
+      "fileMatch": [".github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "python-version: ['\"]?(?<currentValue>\\d+\\.\\d+)['\"]?"
+      ],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "python"
+    }
+  ]  
 } 
