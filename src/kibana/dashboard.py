@@ -11,7 +11,6 @@ import requests
 from src.utils.config import config
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 
