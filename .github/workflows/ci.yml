@@ -79,3 +79,23 @@ jobs:
         run: |
           docker compose -f docker-compose.yml down --rmi all --volumes --remove-orphans
           rm .env
+
+  notify-failure:
+    needs: [lint_and_test, dry-run]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          slack-message: |
+            :x: CI Pipeline Failed
+            *Repository:* ${{ github.repository }}
+            *Workflow:* ${{ github.workflow }}
+            *Branch:* ${{ github.ref }}
+            *Commit:* ${{ github.sha }}
+            *Failed Job:* ${{ needs.lint_and_test.result == 'failure' && 'lint_and_test' || 'dry-run' }}
+            *View Details:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

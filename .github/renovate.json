@@ -28,7 +28,7 @@
         "python-version: ['\"]?(?<currentValue>\\d+\\.\\d+)['\"]?"
       ],
       "depNameTemplate": "python",
-      "datasourceTemplate": "python"
+      "datasourceTemplate": "python-version"
     }
   ]  
 } 
