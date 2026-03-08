@@ -77,7 +77,7 @@ class CursorClient:
         self.source_ref = source_ref
         self.poll_interval = poll_interval
         self.poll_timeout = poll_timeout
-        # Optional model name for Cloud Agents API (e.g., "gpt-5.2")
+        # Optional model name for Cloud Agents API (e.g., "composer-1.5")
         self.model = model
 
         encoded = b64encode(f"{api_key}:".encode()).decode()
@@ -103,7 +103,16 @@ class CursorClient:
             return {}
         return response.json()
 
-    def create_agent(self, prompt: str) -> str:
+    def list_models(self) -> List[str]:
+        """
+        Return the list of model IDs recommended for the launch endpoint.
+
+        Use these values for CURSOR_MODEL. The list does not include "default";
+        omit model or use "default"/"Auto" for API default.
+        """
+        data = self._request("GET", "/v0/models")
+        return list(data.get("models", []))
+
         """
         Launch a new cloud agent with the given prompt.
 
@@ -120,10 +129,13 @@ class CursorClient:
                 "autoCreatePr": False,
             },
         }
-        # Some accounts may have an invalid default model configured.
-        # Allow explicitly specifying a model to avoid 400 errors.
+        # model: optional. Use "default" or omit for API default; explicit ID (e.g. composer-1.5) otherwise.
+        # Treat empty, "default", or "Auto" (case-insensitive) as "use API default".
         if self.model:
-            payload["model"] = self.model
+            normalized = self.model.strip().lower()
+            if normalized not in ("", "default", "auto"):
+                payload["model"] = self.model.strip()
+            # else: omit payload["model"] so API uses user/team/system default
         data = self._request("POST", "/v0/agents", json=payload)
         agent_id = data["id"]
         logger.info(f"Created agent {agent_id} for prompt: {prompt[:80]}...")

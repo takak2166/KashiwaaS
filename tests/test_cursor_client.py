@@ -52,6 +52,80 @@ class TestCursorClient:
         assert payload["prompt"]["text"] == "What is Python?"
         assert payload["source"]["repository"] == "https://github.com/test/repo"
         assert payload["target"]["autoCreatePr"] is False
+        assert "model" not in payload
+
+    @patch("src.cursor.client.requests.request")
+    def test_create_agent_model_auto_omits_model(self, mock_request):
+        client = CursorClient(
+            api_key="k",
+            source_repository="https://github.com/t/r",
+            model="Auto",
+        )
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b'{"id": "x"}'
+        mock_response.json.return_value = {"id": "x"}
+        mock_request.return_value = mock_response
+
+        client.create_agent("q")
+        payload = mock_request.call_args[1]["json"]
+        assert "model" not in payload
+
+    @patch("src.cursor.client.requests.request")
+    def test_create_agent_model_default_omits_model(self, mock_request):
+        client = CursorClient(
+            api_key="k",
+            source_repository="https://github.com/t/r",
+            model="default",
+        )
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b'{"id": "x"}'
+        mock_response.json.return_value = {"id": "x"}
+        mock_request.return_value = mock_response
+
+        client.create_agent("q")
+        payload = mock_request.call_args[1]["json"]
+        assert "model" not in payload
+
+    @patch("src.cursor.client.requests.request")
+    def test_create_agent_model_explicit_sends_model(self, mock_request):
+        client = CursorClient(
+            api_key="k",
+            source_repository="https://github.com/t/r",
+            model="gpt-5.2",
+        )
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b'{"id": "x"}'
+        mock_response.json.return_value = {"id": "x"}
+        mock_request.return_value = mock_response
+
+        client.create_agent("q")
+        payload = mock_request.call_args[1]["json"]
+        assert payload["model"] == "gpt-5.2"
+
+    @patch("src.cursor.client.requests.request")
+    def test_list_models(self, mock_request, cursor_client):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b'{"models": ["gpt-5.2", "claude-4-sonnet-thinking"]}'
+        mock_response.json.return_value = {
+            "models": ["gpt-5.2", "claude-4-sonnet-thinking"],
+        }
+        mock_request.return_value = mock_response
+
+        models = cursor_client.list_models()
+
+        assert models == ["gpt-5.2", "claude-4-sonnet-thinking"]
+        mock_request.assert_called_once()
+        call_args = mock_request.call_args
+        assert call_args[0][0] == "GET"
+        assert "/v0/models" in call_args[0][1]
 
     @patch("src.cursor.client.requests.request")
     def test_get_agent_status(self, mock_request, cursor_client):

@@ -40,7 +40,7 @@ def create_app() -> App:
         source_ref=os.environ.get("CURSOR_SOURCE_REF", "main"),
         poll_interval=int(os.environ.get("CURSOR_POLL_INTERVAL", "5")),
         poll_timeout=int(os.environ.get("CURSOR_POLL_TIMEOUT", "300")),
-        model=os.environ.get("CURSOR_MODEL", "gpt-5.2"),
+        model=os.environ.get("CURSOR_MODEL", "composer-1.5"),
     )
 
     @app.event("app_mention")
