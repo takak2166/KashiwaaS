@@ -113,6 +113,7 @@ class CursorClient:
         data = self._request("GET", "/v0/models")
         return list(data.get("models", []))
 
+    def create_agent(self, prompt: str) -> str:
         """
         Launch a new cloud agent with the given prompt.
 
