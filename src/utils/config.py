@@ -63,6 +63,25 @@ class KibanaConfig:
 
 
 @dataclass
+class CursorConfig:
+    """Cursor Cloud Agents API configuration"""
+
+    api_key: Optional[str] = None
+    source_repository: str = "https://github.com/takak2166/KashiwaaS"
+    source_ref: str = "main"
+    poll_interval: int = 5
+    poll_timeout: int = 300
+
+
+@dataclass
+class BotConfig:
+    """Bot (Socket Mode) configuration"""
+
+    app_token: Optional[str] = None
+    bot_token: Optional[str] = None
+
+
+@dataclass
 class AppConfig:
     """Application-wide configuration"""
 
@@ -72,6 +91,8 @@ class AppConfig:
     selenium_host: str
     timezone: str
     alert: AlertConfig
+    cursor: CursorConfig
+    bot: BotConfig
 
 
 def load_config() -> AppConfig:
@@ -112,6 +133,17 @@ def load_config() -> AppConfig:
     # Timezone configuration
     timezone = os.getenv("TIMEZONE", "Asia/Tokyo")
 
+    # Load Cursor configuration
+    cursor_api_key = os.getenv("CURSOR_API_KEY")
+    cursor_source_repository = os.getenv("CURSOR_SOURCE_REPOSITORY", "https://github.com/takak2166/KashiwaaS")
+    cursor_source_ref = os.getenv("CURSOR_SOURCE_REF", "main")
+    cursor_poll_interval = int(os.getenv("CURSOR_POLL_INTERVAL", "5"))
+    cursor_poll_timeout = int(os.getenv("CURSOR_POLL_TIMEOUT", "300"))
+
+    # Load Bot configuration
+    slack_app_token = os.getenv("SLACK_APP_TOKEN")
+    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+
     return AppConfig(
         slack=SlackConfig(
             api_token=slack_token,
@@ -136,6 +168,17 @@ def load_config() -> AppConfig:
             min_level=alert_min_level,
             throttle_seconds=alert_throttle_seconds,
             max_per_hour=alert_max_per_hour,
+        ),
+        cursor=CursorConfig(
+            api_key=cursor_api_key,
+            source_repository=cursor_source_repository,
+            source_ref=cursor_source_ref,
+            poll_interval=cursor_poll_interval,
+            poll_timeout=cursor_poll_timeout,
+        ),
+        bot=BotConfig(
+            app_token=slack_app_token,
+            bot_token=slack_bot_token,
         ),
     )
 

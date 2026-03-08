@@ -1,0 +1,218 @@
+"""
+Cursor Cloud Agents API Client
+Provides functionality for interacting with Cursor's Cloud Agents API for Q&A.
+"""
+
+import time
+from base64 import b64encode
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+import requests
+
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+BASE_URL = "https://api.cursor.com"
+
+
+class AgentStatus(str, Enum):
+    CREATING = "CREATING"
+    RUNNING = "RUNNING"
+    FINISHED = "FINISHED"
+    STOPPED = "STOPPED"
+    ERROR = "ERROR"
+
+
+TERMINAL_STATUSES = {AgentStatus.FINISHED, AgentStatus.STOPPED, AgentStatus.ERROR}
+
+
+@dataclass
+class AgentMessage:
+    id: str
+    type: str
+    text: str
+
+
+@dataclass
+class AgentResult:
+    agent_id: str
+    status: AgentStatus
+    messages: List[AgentMessage]
+
+
+class CursorAPIError(Exception):
+    """Raised when Cursor API returns an error response."""
+
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        super().__init__(f"Cursor API error ({status_code}): {message}")
+
+
+class CursorTimeoutError(Exception):
+    """Raised when polling for agent completion exceeds the timeout."""
+
+
+class CursorClient:
+    """
+    Client for Cursor Cloud Agents API.
+
+    Uses the Cloud Agents API to send prompts and retrieve AI responses.
+    Each Q&A session creates a cloud agent tied to a repository.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        source_repository: str,
+        source_ref: str = "main",
+        poll_interval: int = 5,
+        poll_timeout: int = 300,
+        model: Optional[str] = None,
+    ):
+        self.api_key = api_key
+        self.source_repository = source_repository
+        self.source_ref = source_ref
+        self.poll_interval = poll_interval
+        self.poll_timeout = poll_timeout
+        # Optional model name for Cloud Agents API (e.g., "gpt-5.2")
+        self.model = model
+
+        encoded = b64encode(f"{api_key}:".encode()).decode()
+        self.headers = {
+            "Authorization": f"Basic {encoded}",
+            "Content-Type": "application/json",
+        }
+
+    def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
+        url = f"{BASE_URL}{path}"
+        response = requests.request(method, url, headers=self.headers, **kwargs)
+
+        if response.status_code == 429:
+            raise CursorAPIError(429, "Rate limit exceeded")
+        if response.status_code == 401:
+            raise CursorAPIError(401, "Invalid API key")
+        if response.status_code == 403:
+            raise CursorAPIError(403, "Insufficient permissions")
+        if not response.ok:
+            raise CursorAPIError(response.status_code, response.text)
+
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
+
+    def create_agent(self, prompt: str) -> str:
+        """
+        Launch a new cloud agent with the given prompt.
+
+        Returns:
+            The agent ID.
+        """
+        payload: Dict[str, Any] = {
+            "prompt": {"text": prompt},
+            "source": {
+                "repository": self.source_repository,
+                "ref": self.source_ref,
+            },
+            "target": {
+                "autoCreatePr": False,
+            },
+        }
+        # Some accounts may have an invalid default model configured.
+        # Allow explicitly specifying a model to avoid 400 errors.
+        if self.model:
+            payload["model"] = self.model
+        data = self._request("POST", "/v0/agents", json=payload)
+        agent_id = data["id"]
+        logger.info(f"Created agent {agent_id} for prompt: {prompt[:80]}...")
+        return agent_id
+
+    def get_agent_status(self, agent_id: str) -> AgentStatus:
+        """Get the current status of an agent."""
+        data = self._request("GET", f"/v0/agents/{agent_id}")
+        raw_status = data.get("status", "ERROR")
+        try:
+            return AgentStatus(raw_status)
+        except ValueError:
+            logger.warning(f"Unknown agent status: {raw_status}")
+            return AgentStatus.ERROR
+
+    def get_conversation(self, agent_id: str) -> List[AgentMessage]:
+        """Retrieve the conversation history of an agent."""
+        data = self._request("GET", f"/v0/agents/{agent_id}/conversation")
+        messages = []
+        for msg in data.get("messages", []):
+            messages.append(
+                AgentMessage(
+                    id=msg.get("id", ""),
+                    type=msg.get("type", ""),
+                    text=msg.get("text", ""),
+                )
+            )
+        return messages
+
+    def send_followup(self, agent_id: str, prompt: str) -> None:
+        """Send a follow-up prompt to an existing agent."""
+        payload = {"prompt": {"text": prompt}}
+        self._request("POST", f"/v0/agents/{agent_id}/followup", json=payload)
+        logger.info(f"Sent followup to agent {agent_id}: {prompt[:80]}...")
+
+    def delete_agent(self, agent_id: str) -> None:
+        """Delete a cloud agent."""
+        try:
+            self._request("DELETE", f"/v0/agents/{agent_id}")
+            logger.info(f"Deleted agent {agent_id}")
+        except CursorAPIError as e:
+            logger.warning(f"Failed to delete agent {agent_id}: {e}")
+
+    def poll_until_complete(self, agent_id: str) -> AgentStatus:
+        """
+        Poll the agent status until it reaches a terminal state or times out.
+
+        Returns:
+            The final AgentStatus.
+
+        Raises:
+            CursorTimeoutError: If polling exceeds the timeout.
+        """
+        elapsed = 0
+        while elapsed < self.poll_timeout:
+            status = self.get_agent_status(agent_id)
+            if status in TERMINAL_STATUSES:
+                logger.info(f"Agent {agent_id} reached terminal status: {status.value}")
+                return status
+            time.sleep(self.poll_interval)
+            elapsed += self.poll_interval
+
+        raise CursorTimeoutError(
+            f"Agent {agent_id} did not complete within {self.poll_timeout}s"
+        )
+
+    def ask(self, prompt: str) -> AgentResult:
+        """
+        Create an agent, wait for completion, and return the conversation.
+
+        This is the main entry point for a new Q&A session.
+        """
+        agent_id = self.create_agent(prompt)
+        status = self.poll_until_complete(agent_id)
+        messages = self.get_conversation(agent_id)
+        return AgentResult(agent_id=agent_id, status=status, messages=messages)
+
+    def followup(self, agent_id: str, prompt: str) -> AgentResult:
+        """
+        Send a follow-up to an existing agent and return updated conversation.
+        """
+        self.send_followup(agent_id, prompt)
+        status = self.poll_until_complete(agent_id)
+        messages = self.get_conversation(agent_id)
+        return AgentResult(agent_id=agent_id, status=status, messages=messages)
+
+    def get_latest_assistant_message(self, messages: List[AgentMessage]) -> Optional[str]:
+        """Extract the most recent assistant message from a conversation."""
+        for msg in reversed(messages):
+            if msg.type == "assistant_message":
+                return msg.text
+        return None

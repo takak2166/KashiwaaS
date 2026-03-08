@@ -12,6 +12,7 @@ This system collects messages from a specific Slack channel, stores them in Elas
 - Generates daily and weekly reports
 - Visualizes message data using Kibana
 - Posts reports to Slack automatically
+- **KashiwaaS Bot**: Answer programming questions via `@kashiwaas` mention using Cursor Cloud Agents API
 
 ## Installation
 ### Prerequisites
@@ -87,6 +88,41 @@ To import Kibana dashboards, run the following command:
 docker-compose exec app poetry run python scripts/import_kibana_objects.py
 ```
 
+## KashiwaaS Bot
+A Slack bot that answers programming and technical questions via Cursor Cloud Agents API.
+
+### How it Works
+1. Mention `@kashiwaas` in a Slack channel with your question
+2. The bot adds an :eyes: reaction to indicate it's processing
+3. The question is sent to Cursor's Cloud Agents API
+4. The response is posted as a thread reply
+5. Follow-up questions in the same thread maintain conversation context
+
+### Slack App Setup
+1. Create a new Slack App at [api.slack.com/apps](https://api.slack.com/apps)
+2. Enable **Socket Mode** and generate an App-Level Token (`xapp-`)
+3. Under **Event Subscriptions**, subscribe to `app_mention` bot event
+4. Add the following **Bot Token Scopes**: `app_mentions:read`, `chat:write`, `reactions:write`
+5. Install the app to your workspace and copy the Bot Token (`xoxb-`)
+6. Get a Cursor API key from [Cursor Dashboard → Integrations](https://cursor.com/dashboard?tab=integrations)
+
+### Bot Environment Variables
+- `SLACK_APP_TOKEN`: Slack App-Level Token for Socket Mode
+- `SLACK_BOT_TOKEN`: Slack Bot Token
+- `CURSOR_API_KEY`: Cursor Cloud Agents API key
+- `CURSOR_SOURCE_REPOSITORY`: GitHub repository URL (default: this repository)
+- `CURSOR_POLL_INTERVAL`: Polling interval in seconds (default: 5)
+- `CURSOR_POLL_TIMEOUT`: Polling timeout in seconds (default: 300)
+
+### Running the Bot
+```bash
+# Via Docker Compose (starts alongside other services)
+docker-compose up -d bot
+
+# Or locally
+poetry run python -m src.bot.kashiwaas
+```
+
 ## Deployment
 ### Production Environment
 1. Set up environment variables
@@ -112,6 +148,7 @@ docker-compose exec app poetry run python scripts/import_kibana_objects.py
 - 日次・週次のレポートを生成
 - Kibanaを使用してメッセージデータを可視化
 - レポートをSlackに自動投稿
+- **KashiwaaS Bot**: `@kashiwaas` メンションでプログラミングの質問に回答（Cursor Cloud Agents API 連携）
 
 ## インストール
 ### 前提条件
@@ -186,6 +223,41 @@ docker-compose exec app poetry run python scripts/setup_indices.py
 Kibanaダッシュボードをインポートするには、以下のコマンドを実行します：
 ```bash
 docker-compose exec app poetry run python scripts/import_kibana_objects.py
+```
+
+## KashiwaaS Bot
+Cursor Cloud Agents API を利用して、プログラミング・技術的な質問に回答するSlackボットです。
+
+### 使い方
+1. Slackチャンネルで `@kashiwaas` をメンションして質問を投稿
+2. ボットが :eyes: リアクションを付けて処理中であることを表示
+3. 質問がCursor Cloud Agents APIに送信される
+4. 回答がスレッドに投稿される
+5. 同じスレッド内でフォローアップの質問が可能（会話コンテキストを保持）
+
+### Slack App の設定
+1. [api.slack.com/apps](https://api.slack.com/apps) で新しいSlack Appを作成
+2. **Socket Mode** を有効化し、App-Level Token (`xapp-`) を生成
+3. **Event Subscriptions** で `app_mention` ボットイベントを購読
+4. **Bot Token Scopes** に `app_mentions:read`, `chat:write`, `reactions:write` を追加
+5. ワークスペースにアプリをインストールし、Bot Token (`xoxb-`) をコピー
+6. [Cursor Dashboard → Integrations](https://cursor.com/dashboard?tab=integrations) でCursor APIキーを取得
+
+### Bot用の環境変数
+- `SLACK_APP_TOKEN`: Socket Mode用のSlack App-Level Token
+- `SLACK_BOT_TOKEN`: Slack Bot Token
+- `CURSOR_API_KEY`: Cursor Cloud Agents APIキー
+- `CURSOR_SOURCE_REPOSITORY`: GitHubリポジトリURL（デフォルト: 本リポジトリ）
+- `CURSOR_POLL_INTERVAL`: ポーリング間隔（秒、デフォルト: 5）
+- `CURSOR_POLL_TIMEOUT`: ポーリングタイムアウト（秒、デフォルト: 300）
+
+### Botの起動
+```bash
+# Docker Compose経由（他のサービスと一緒に起動）
+docker-compose up -d bot
+
+# またはローカルで実行
+poetry run python -m src.bot.kashiwaas
 ```
 
 ## デプロイメント
