@@ -70,11 +70,11 @@ def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> lis
         split_pos = text.rfind("\n", 0, max_length)
         if split_pos == -1:
             split_pos = text.rfind(" ", 0, max_length)
-        if split_pos == -1:
+        if split_pos <= 0:
             split_pos = max_length
 
         chunks.append(text[:split_pos])
-        text = text[split_pos:].lstrip("\n")
+        text = text[split_pos:].lstrip("\n ")
 
     return chunks
 
