@@ -23,7 +23,10 @@ from src.slack.message import SlackMessage, SlackReaction
 class TestElasticsearchClient:
     """Tests for ElasticsearchClient class"""
 
-    @pytest.mark.skipif(not os.getenv("ELASTICSEARCH_HOST"), reason="ELASTICSEARCH_HOST not set")
+    @pytest.mark.skipif(
+        not os.getenv("ELASTICSEARCH_HOST") or "elasticsearch" in (os.getenv("ELASTICSEARCH_HOST") or ""),
+        reason="ELASTICSEARCH_HOST not set or points to Docker-only host (elasticsearch)",
+    )
     def test_connection(self):
         """Test connection to Elasticsearch"""
         client = ElasticsearchClient()
