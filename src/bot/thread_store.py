@@ -57,10 +57,7 @@ class ThreadStore:
     def _evict_expired(self) -> None:
         """Remove entries older than TTL. Must be called under lock."""
         now = time.time()
-        expired = [
-            ts for ts, entry in self._store.items()
-            if now - entry.created_at > self._ttl
-        ]
+        expired = [ts for ts, entry in self._store.items() if now - entry.created_at > self._ttl]
         for ts in expired:
             del self._store[ts]
         if expired:

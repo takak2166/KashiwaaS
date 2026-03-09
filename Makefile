@@ -1,13 +1,16 @@
 .PHONY: lint test
 
+# Prefer poetry; fall back to rye run python -m when poetry is not installed
+RUN := $(shell command -v poetry >/dev/null 2>&1 && echo "poetry run" || echo "rye run python -m")
+
 lint:
 	@echo "Running black..."
-	poetry run black .
+	$(RUN) black .
 	@echo "Running isort..."
-	poetry run isort .
+	$(RUN) isort .
 	@echo "Running flake8..."
-	poetry run flake8 .
+	$(RUN) flake8 .
 
 test:
 	@echo "Running pytest..."
-	poetry run pytest
+	$(RUN) pytest

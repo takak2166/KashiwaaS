@@ -5,8 +5,6 @@ Tests for KashiwaaS bot handler and utilities
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.bot.kashiwaas import _extract_question, _split_message
 from src.bot.thread_store import ThreadStore
 
@@ -157,9 +155,7 @@ class TestHandleMention:
 
         _handle_mention(event, say, client, cursor_client)
 
-        client.reactions_add.assert_called_once_with(
-            channel="C123", timestamp="1234.5678", name="eyes"
-        )
+        client.reactions_add.assert_called_once_with(channel="C123", timestamp="1234.5678", name="eyes")
 
     @patch("src.bot.kashiwaas.thread_store")
     def test_thread_ts_used_for_reply(self, mock_store):
@@ -180,6 +176,4 @@ class TestHandleMention:
 
         _handle_mention(event, say, client, cursor_client)
 
-        client.reactions_add.assert_called_once_with(
-            channel="C123", timestamp="1234.9999", name="eyes"
-        )
+        client.reactions_add.assert_called_once_with(channel="C123", timestamp="1234.9999", name="eyes")

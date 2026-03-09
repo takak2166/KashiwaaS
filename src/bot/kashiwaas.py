@@ -100,9 +100,7 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
     event_ts = event.get("ts", "")
     thread_ts = event.get("thread_ts") or event_ts
 
-    logger.info(
-        f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={text!r}"
-    )
+    logger.info(f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={text!r}")
 
     question = _extract_question(text)
     if not question:

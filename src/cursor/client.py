@@ -199,9 +199,7 @@ class CursorClient:
             time.sleep(self.poll_interval)
             elapsed += self.poll_interval
 
-        raise CursorTimeoutError(
-            f"Agent {agent_id} did not complete within {self.poll_timeout}s"
-        )
+        raise CursorTimeoutError(f"Agent {agent_id} did not complete within {self.poll_timeout}s")
 
     def ask(self, prompt: str) -> AgentResult:
         """
