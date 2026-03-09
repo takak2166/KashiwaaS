@@ -2,7 +2,6 @@
 Tests for KashiwaaS bot handler and utilities
 """
 
-import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -149,9 +148,11 @@ class TestHandleMention:
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
             mock_thread = MagicMock()
+
             def start():
                 if target:
                     target()
+
             mock_thread.start.side_effect = start
             return mock_thread
 
@@ -185,9 +186,11 @@ class TestHandleMention:
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
             mock_thread = MagicMock()
+
             def start():
                 if target:
                     target()
+
             mock_thread.start.side_effect = start
             return mock_thread
 
