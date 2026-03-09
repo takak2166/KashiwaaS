@@ -2,11 +2,13 @@
 Tests for KashiwaaS bot handler and utilities
 """
 
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
 from src.bot.kashiwaas import _extract_question, _split_message
 from src.bot.thread_store import ThreadStore
+from src.cursor.client import AgentMessage, AgentResult, AgentStatus
 
 
 class TestExtractQuestion:
@@ -139,11 +141,23 @@ class TestHandleMention:
         cursor_client.ask.assert_not_called()
 
     @patch("src.bot.kashiwaas.thread_store")
-    def test_new_question_adds_eyes_reaction(self, mock_store):
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_new_question_adds_eyes_reaction(self, mock_thread_class, mock_store):
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store.get.return_value = None
+        # Run _process synchronously so the test is deterministic (CI runs fast and thread may finish before assert)
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+            def start():
+                if target:
+                    target()
+            mock_thread.start.side_effect = start
+            return mock_thread
 
+        mock_thread_class.side_effect = run_target_immediately
+
+        mock_store.get.return_value = None
         event = {
             "text": "<@U12345> What is Python?",
             "channel": "C123",
@@ -152,18 +166,34 @@ class TestHandleMention:
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
+        cursor_client.ask.return_value = AgentResult(
+            agent_id="agent_1",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m1", type="assistant_message", text="Python is a language.")],
+        )
 
         _handle_mention(event, say, client, cursor_client)
 
-        client.reactions_add.assert_called_once_with(channel="C123", timestamp="1234.5678", name="eyes")
+        client.reactions_add.assert_any_call(channel="C123", timestamp="1234.5678", name="eyes")
 
     @patch("src.bot.kashiwaas.thread_store")
-    def test_thread_ts_used_for_reply(self, mock_store):
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_thread_ts_used_for_reply(self, mock_thread_class, mock_store):
         """When event has thread_ts, it should be used as the reply target"""
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store.get.return_value = None
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+            def start():
+                if target:
+                    target()
+            mock_thread.start.side_effect = start
+            return mock_thread
 
+        mock_thread_class.side_effect = run_target_immediately
+
+        mock_store.get.return_value = None
         event = {
             "text": "<@U12345> followup question",
             "channel": "C123",
@@ -173,7 +203,12 @@ class TestHandleMention:
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
+        cursor_client.ask.return_value = AgentResult(
+            agent_id="agent_1",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m1", type="assistant_message", text="Here is the answer.")],
+        )
 
         _handle_mention(event, say, client, cursor_client)
 
-        client.reactions_add.assert_called_once_with(channel="C123", timestamp="1234.9999", name="eyes")
+        client.reactions_add.assert_any_call(channel="C123", timestamp="1234.9999", name="eyes")
