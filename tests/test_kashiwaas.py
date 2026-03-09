@@ -215,3 +215,44 @@ class TestHandleMention:
         _handle_mention(event, say, client, cursor_client)
 
         client.reactions_add.assert_any_call(channel="C123", timestamp="1234.9999", name="eyes")
+
+    @patch("src.bot.kashiwaas.thread_store")
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_followup_error_clears_thread_mapping(self, mock_thread_class, mock_store):
+        """When followup returns ERROR, the stale agent mapping should be cleared."""
+        from src.bot.kashiwaas import _handle_mention
+
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+
+            def start():
+                if target:
+                    target()
+
+            mock_thread.start.side_effect = start
+            return mock_thread
+
+        mock_thread_class.side_effect = run_target_immediately
+
+        # Existing mapping for this thread
+        mock_store.get.return_value = "agent_1"
+        event = {
+            "text": "<@U12345> followup question",
+            "channel": "C123",
+            "ts": "1234.0001",
+            "thread_ts": "thread_1",
+        }
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+        cursor_client.followup.return_value = AgentResult(
+            agent_id="agent_1",
+            status=AgentStatus.ERROR,
+            messages=[],
+        )
+
+        _handle_mention(event, say, client, cursor_client)
+
+        # Mapping should be cleared so that future mentions can create a new agent
+        mock_store.remove.assert_called_with("thread_1")

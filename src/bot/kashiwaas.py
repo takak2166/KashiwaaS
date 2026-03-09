@@ -123,6 +123,8 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
                     thread_store.set(thread_ts, result.agent_id)
 
             if result.status == AgentStatus.ERROR:
+                # On error, clear any existing mapping so the next mention can create a fresh agent.
+                thread_store.remove(thread_ts)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(
@@ -146,6 +148,8 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
             _add_reaction(client, channel, event_ts, "white_check_mark")
 
         except CursorTimeoutError:
+            # Treat timeouts as a terminal failure for this agent; allow a fresh agent on retry.
+            thread_store.remove(thread_ts)
             _remove_reaction(client, channel, event_ts, "eyes")
             _add_reaction(client, channel, event_ts, "x")
             say(
@@ -159,12 +163,16 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
             if e.status_code in (401, 403):
                 say(text="Cursor API の認証設定に問題があります。管理者に確認してください。", thread_ts=thread_ts)
             else:
+                # For non-auth API errors, assume the agent is broken and clear the mapping.
+                thread_store.remove(thread_ts)
                 say(
                     text="申し訳ありません、回答の取得に失敗しました。しばらくしてからお試しください。",
                     thread_ts=thread_ts,
                 )
         except Exception as e:
             logger.error(f"Unexpected error handling mention: {e}")
+            # On unexpected errors, clear the mapping to avoid trapping the thread with a bad agent.
+            thread_store.remove(thread_ts)
             _remove_reaction(client, channel, event_ts, "eyes")
             _add_reaction(client, channel, event_ts, "x")
             say(
