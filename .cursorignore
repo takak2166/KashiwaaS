@@ -1,0 +1,11 @@
+# 環境変数ファイル
+.env
+
+# 認証情報
+credentials.json
+secrets.json
+
+# 秘密鍵
+*.key
+*.pem
+id_rsa
