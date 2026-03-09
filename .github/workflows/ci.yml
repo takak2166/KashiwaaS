@@ -27,9 +27,24 @@ jobs:
 
       - name: Run linting
         run: poetry run make lint
+        env:
+          # Minimal env so load_config() does not get None for required fields when tests import app modules
+          SLACK_API_TOKEN: ""
+          SLACK_CHANNEL_ID: ""
+          SLACK_CHANNEL_NAME: ""
+          ELASTICSEARCH_HOST: ""
+          KIBANA_HOST: ""
+          SELENIUM_HOST: ""
 
       - name: Run tests
         run: poetry run make test
+        env:
+          SLACK_API_TOKEN: ""
+          SLACK_CHANNEL_ID: ""
+          SLACK_CHANNEL_NAME: ""
+          ELASTICSEARCH_HOST: ""
+          KIBANA_HOST: ""
+          SELENIUM_HOST: ""
 
   dry-run:
     runs-on: ubuntu-latest

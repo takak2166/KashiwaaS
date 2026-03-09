@@ -119,7 +119,8 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
             else:
                 logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
                 result = cursor_client.ask(question)
-                thread_store.set(thread_ts, result.agent_id)
+                if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
+                    thread_store.set(thread_ts, result.agent_id)
 
             if result.status == AgentStatus.ERROR:
                 _remove_reaction(client, channel, event_ts, "eyes")
