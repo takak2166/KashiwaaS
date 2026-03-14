@@ -86,7 +86,7 @@ def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> lis
 
         chunks.append(text[:split_pos])
         rest = text[split_pos:]
-        # Strip only the single newline at the split so paragraph breaks are preserved (PR #6 2935570723)
+        # Strip only the single newline at the split so paragraph breaks are preserved
         if rest.startswith("\n"):
             rest = rest[1:]
         text = rest
@@ -165,7 +165,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     thread_store.set(thread_ts, result.agent_id)
 
             if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                # Clear mapping so the next mention creates a fresh agent; avoid posting stale answer (PR #6 2935627290).
+                # Clear mapping so the next mention creates a fresh agent.
                 thread_store.remove(thread_ts)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")

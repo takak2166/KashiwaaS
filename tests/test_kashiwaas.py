@@ -73,7 +73,7 @@ class TestSplitMessage:
         assert result == [""]
 
     def test_split_preserves_leading_indentation(self):
-        """Continuation chunk keeps leading spaces so code indentation is not lost (PR review 2935547365)."""
+        """Continuation chunk keeps leading spaces so code indentation is not lost."""
         text = "AAAAAAAAAA\n    def foo():"
         result = _split_message(text, max_length=20)
         assert len(result) == 2
@@ -81,7 +81,7 @@ class TestSplitMessage:
         assert result[1] == "    def foo():"
 
     def test_split_preserves_paragraph_breaks(self):
-        """Only the single newline at the split is stripped; extra newlines preserved (PR #6 2935570723)."""
+        """Only the single newline at the split is stripped; extra newlines preserved."""
         text = "Hi\n\n\nX"
         result = _split_message(text, max_length=3)
         assert len(result) >= 2
