@@ -46,6 +46,12 @@ def create_app() -> App:
         poll_interval=int(os.environ.get("CURSOR_POLL_INTERVAL", "5")),
         poll_timeout=int(os.environ.get("CURSOR_POLL_TIMEOUT", "300")),
         model=os.environ.get("CURSOR_MODEL", "composer-1.5"),
+        conversation_retry_max_retries=int(
+            os.environ.get("CURSOR_CONVERSATION_RETRY_MAX_RETRIES", "3")
+        ),
+        conversation_retry_delay_seconds=float(
+            os.environ.get("CURSOR_CONVERSATION_RETRY_DELAY_SECONDS", "1.5")
+        ),
     )
 
     @app.event("app_mention")

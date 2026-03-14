@@ -71,6 +71,8 @@ class CursorClient:
         poll_interval: int = 5,
         poll_timeout: int = 300,
         model: Optional[str] = None,
+        conversation_retry_max_retries: int = 3,
+        conversation_retry_delay_seconds: float = 1.5,
     ):
         self.api_key = api_key
         self.source_repository = source_repository
@@ -79,6 +81,8 @@ class CursorClient:
         self.poll_timeout = poll_timeout
         # Optional model name for Cloud Agents API (e.g., "composer-1.5")
         self.model = model
+        self.conversation_retry_max_retries = conversation_retry_max_retries
+        self.conversation_retry_delay_seconds = conversation_retry_delay_seconds
 
         encoded = b64encode(f"{api_key}:".encode()).decode()
         self.headers = {
@@ -170,8 +174,8 @@ class CursorClient:
         self,
         agent_id: str,
         expected_previous_message_id: Optional[str] = None,
-        max_retries: int = 3,
-        delay_seconds: float = 1.5,
+        max_retries: Optional[int] = None,
+        delay_seconds: Optional[float] = None,
     ) -> List[AgentMessage]:
         """
         Retrieve the conversation after agent completion, with retries.
@@ -179,8 +183,12 @@ class CursorClient:
         When expected_previous_message_id is set (e.g. from the last reply in
         this thread), retries until the latest assistant message id differs from
         it, so we avoid returning a stale snapshot that still shows the previous
-        answer (API eventual consistency).
+        answer (API eventual consistency). Uses exponential backoff between
+        retries (delay_seconds * 2^attempt). Uses conversation_retry_max_retries
+        and conversation_retry_delay_seconds from the client when not overridden.
         """
+        max_retries = max_retries if max_retries is not None else self.conversation_retry_max_retries
+        delay_seconds = delay_seconds if delay_seconds is not None else self.conversation_retry_delay_seconds
         for attempt in range(max_retries):
             messages = self.get_conversation(agent_id)
             latest = self.get_latest_assistant_message_message(messages)
@@ -189,7 +197,7 @@ class CursorClient:
             if latest.id != expected_previous_message_id:
                 return messages
             if attempt < max_retries - 1:
-                time.sleep(delay_seconds)
+                time.sleep(delay_seconds * (2**attempt))
         return messages
 
     def send_followup(self, agent_id: str, prompt: str) -> None:
