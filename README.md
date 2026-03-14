@@ -124,6 +124,8 @@ docker-compose up -d bot
 poetry run python -m src.bot.kashiwaas
 ```
 
+**Broken pipe errors:** You may see occasional `BrokenPipeError` or "Failed to check the state of sock" in logs. This is a known behavior of Slack Socket Mode when the WebSocket connection drops (e.g. network glitches). The Bolt client automatically reconnects; if the bot continues to respond to mentions, these messages can be ignored. Logging to stderr is also configured to avoid crashing on a closed pipe in Docker.
+
 ## Deployment
 ### Production Environment
 1. Set up environment variables
@@ -261,6 +263,8 @@ docker-compose up -d bot
 # またはローカルで実行
 poetry run python -m src.bot.kashiwaas
 ```
+
+**Broken pipe について:** ログに `BrokenPipeError` や "Failed to check the state of sock" がときどき出ることがあります。Slack Socket Mode で WebSocket が切断されたとき（ネットワークの揺れなど）の既知の挙動です。Bolt は自動で再接続するため、メンションへの応答が続いていれば無視して問題ありません。また、Docker でパイプが閉じた際のクラッシュを避けるため、stderr へのログ出力には catch を入れています。
 
 ## デプロイメント
 ### 本番環境

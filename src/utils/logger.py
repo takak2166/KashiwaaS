@@ -20,7 +20,7 @@ LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
 # Configure logger
 logger.remove()  # Remove default handler
 
-# Log to standard error
+# Log to standard error (catch=True avoids BrokenPipeError when stderr pipe is closed, e.g. in Docker)
 logger.add(
     sys.stderr,
     level=LOG_LEVEL,
@@ -30,6 +30,7 @@ logger.add(
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
         "<level>{message}</level>"
     ),
+    catch=True,
 )
 
 # Log to file
