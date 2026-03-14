@@ -1,4 +1,14 @@
-.PHONY: lint test
+.PHONY: setup install lint test
+
+setup:
+	@echo "Setting up development environment..."
+	@command -v poetry >/dev/null 2>&1 || (echo "Installing Poetry..." && pip install poetry==2.1.1)
+	@echo "Installing dependencies..."
+	poetry install
+
+install:
+	@echo "Installing dependencies..."
+	poetry install
 
 lint:
 	@echo "Running black..."

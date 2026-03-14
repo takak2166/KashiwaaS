@@ -29,6 +29,14 @@
       ],
       "depNameTemplate": "python",
       "datasourceTemplate": "python-version"
+    },
+    {
+      "fileMatch": ["^Makefile$", "^Dockerfile$", ".github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "pip install poetry==(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "poetry",
+      "datasourceTemplate": "pypi"
     }
   ]  
 } 
