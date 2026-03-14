@@ -1,4 +1,8 @@
-.PHONY: lint test
+.PHONY: install lint test
+
+install:
+	@echo "Installing dependencies..."
+	poetry install
 
 lint:
 	@echo "Running black..."
