@@ -92,7 +92,10 @@ class CursorClient:
 
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         url = f"{BASE_URL}{path}"
-        response = requests.request(method, url, headers=self.headers, **kwargs)
+        timeout = kwargs.pop("timeout", 60)
+        response = requests.request(
+            method, url, headers=self.headers, timeout=timeout, **kwargs
+        )
 
         if response.status_code == 429:
             raise CursorAPIError(429, "Rate limit exceeded")
@@ -189,6 +192,8 @@ class CursorClient:
         """
         max_retries = max_retries if max_retries is not None else self.conversation_retry_max_retries
         delay_seconds = delay_seconds if delay_seconds is not None else self.conversation_retry_delay_seconds
+        if max_retries < 1:
+            return self.get_conversation(agent_id)
         for attempt in range(max_retries):
             messages = self.get_conversation(agent_id)
             latest = self.get_latest_assistant_message_message(messages)

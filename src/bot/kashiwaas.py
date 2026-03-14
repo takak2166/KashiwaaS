@@ -85,7 +85,11 @@ def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> lis
             split_pos = max_length
 
         chunks.append(text[:split_pos])
-        text = text[split_pos:].lstrip("\n")
+        rest = text[split_pos:]
+        # Strip only the single newline at the split so paragraph breaks are preserved (PR #6 2935570723)
+        if rest.startswith("\n"):
+            rest = rest[1:]
+        text = rest
 
     return chunks
 

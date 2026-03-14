@@ -80,6 +80,14 @@ class TestSplitMessage:
         assert result[0] == "AAAAAAAAAA"
         assert result[1] == "    def foo():"
 
+    def test_split_preserves_paragraph_breaks(self):
+        """Only the single newline at the split is stripped; extra newlines preserved (PR #6 2935570723)."""
+        text = "Hi\n\n\nX"
+        result = _split_message(text, max_length=3)
+        assert len(result) >= 2
+        # After "Hi", continuation should be "\n\nX" (one \n stripped), so second chunk starts with \n
+        assert result[1].startswith("\n"), "paragraph breaks preserved in continuation chunk"
+
 
 class TestThreadStore:
     """Tests for ThreadStore class"""

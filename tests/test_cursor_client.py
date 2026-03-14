@@ -324,6 +324,18 @@ class TestCursorClient:
         assert result[1].id == "new_id"
         mock_sleep.assert_not_called()
 
+    def test_get_conversation_after_complete_max_retries_zero(self, cursor_client):
+        """When max_retries is 0, return get_conversation result without UnboundLocalError (PR #6 2935578833)."""
+        messages = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="2", type="assistant_message", text="a"),
+        ]
+        with patch.object(cursor_client, "get_conversation", return_value=messages):
+            result = cursor_client.get_conversation_after_complete(
+                "agent_1", max_retries=0
+            )
+        assert result == messages
+
     def test_get_latest_assistant_message_message(self, cursor_client):
         # Chronological order: last assistant is latest
         messages = [
