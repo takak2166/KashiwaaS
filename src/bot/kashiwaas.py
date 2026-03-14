@@ -164,8 +164,8 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
                     thread_store.set(thread_ts, result.agent_id)
 
-            if result.status == AgentStatus.ERROR:
-                # On error, clear any existing mapping so the next mention can create a fresh agent.
+            if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
+                # Clear mapping so the next mention creates a fresh agent; avoid posting stale answer (PR #6 2935627290).
                 thread_store.remove(thread_ts)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
