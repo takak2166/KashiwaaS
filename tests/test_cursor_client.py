@@ -264,12 +264,12 @@ class TestCursorClient:
             cursor_client.poll_until_complete("bc_abc123")
 
     def test_get_latest_assistant_message(self, cursor_client):
-        # API returns newest first: latest assistant is first in list
+        # API returns chronological (oldest first): latest assistant is last in list
         messages = [
-            AgentMessage(id="4", type="assistant_message", text="second answer"),
-            AgentMessage(id="3", type="user_message", text="followup"),
-            AgentMessage(id="2", type="assistant_message", text="first answer"),
             AgentMessage(id="1", type="user_message", text="question"),
+            AgentMessage(id="2", type="assistant_message", text="first answer"),
+            AgentMessage(id="3", type="user_message", text="followup"),
+            AgentMessage(id="4", type="assistant_message", text="second answer"),
         ]
 
         result = cursor_client.get_latest_assistant_message(messages)
@@ -325,9 +325,10 @@ class TestCursorClient:
         mock_sleep.assert_not_called()
 
     def test_get_latest_assistant_message_message(self, cursor_client):
+        # Chronological order: last assistant is latest
         messages = [
-            AgentMessage(id="4", type="assistant_message", text="second"),
             AgentMessage(id="2", type="assistant_message", text="first"),
+            AgentMessage(id="4", type="assistant_message", text="second"),
         ]
         msg = cursor_client.get_latest_assistant_message_message(messages)
         assert msg is not None

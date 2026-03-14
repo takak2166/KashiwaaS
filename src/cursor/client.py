@@ -71,7 +71,7 @@ class CursorClient:
         poll_interval: int = 5,
         poll_timeout: int = 300,
         model: Optional[str] = None,
-        conversation_retry_max_retries: int = 3,
+        conversation_retry_max_retries: int = 4,
         conversation_retry_delay_seconds: float = 1.5,
     ):
         self.api_key = api_key
@@ -272,21 +272,21 @@ class CursorClient:
         """
         Return the most recent assistant message (full message with id and text).
 
-        Cursor API returns messages in reverse chronological order (newest first).
+        Cursor API returns messages in chronological order (oldest first).
+        So the last assistant_message in the list is the latest.
         """
+        latest: Optional[AgentMessage] = None
         for msg in messages:
             if msg.type == "assistant_message":
-                return msg
-        return None
+                latest = msg
+        return latest
 
     def get_latest_assistant_message(self, messages: List[AgentMessage]) -> Optional[str]:
         """
         Extract the most recent assistant message from a conversation.
 
-        Cursor API returns messages in reverse chronological order (newest first).
-        So the first assistant_message in the list is the latest.
+        Cursor API returns messages in chronological order (oldest first).
+        So the last assistant_message in the list is the latest.
         """
-        for msg in messages:
-            if msg.type == "assistant_message":
-                return msg.text
-        return None
+        msg = self.get_latest_assistant_message_message(messages)
+        return msg.text if msg else None
