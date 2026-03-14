@@ -72,6 +72,14 @@ class TestSplitMessage:
         result = _split_message("")
         assert result == [""]
 
+    def test_split_preserves_leading_indentation(self):
+        """Continuation chunk keeps leading spaces so code indentation is not lost (PR review 2935547365)."""
+        text = "AAAAAAAAAA\n    def foo():"
+        result = _split_message(text, max_length=20)
+        assert len(result) == 2
+        assert result[0] == "AAAAAAAAAA"
+        assert result[1] == "    def foo():"
+
 
 class TestThreadStore:
     """Tests for ThreadStore class"""
