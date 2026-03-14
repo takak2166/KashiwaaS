@@ -88,6 +88,14 @@ class TestSplitMessage:
         # After "Hi", continuation should be "\n\nX" (one \n stripped), so second chunk starts with \n
         assert result[1].startswith("\n"), "paragraph breaks preserved in continuation chunk"
 
+    def test_split_strips_leading_space_at_space_boundary(self):
+        """When splitting at a space, the single leading space is stripped from the continuation."""
+        text = "word1 word2"
+        result = _split_message(text, max_length=6)
+        assert len(result) == 2
+        assert result[0] == "word1"
+        assert result[1] == "word2"
+
 
 class TestThreadStore:
     """Tests for ThreadStore class"""
