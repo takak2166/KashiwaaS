@@ -101,6 +101,16 @@ class TestThreadStore:
         store.set("thread_1", "agent_2")
         assert store.get("thread_1") == "agent_2"
 
+    def test_last_message_id(self):
+        store = ThreadStore()
+        store.set("thread_1", "agent_1")
+        assert store.get_last_message_id("thread_1") is None
+        store.set_last_message_id("thread_1", "msg_123")
+        assert store.get_last_message_id("thread_1") == "msg_123"
+        store.remove("thread_1")
+        assert store.get("thread_1") is None
+        assert store.get_last_message_id("thread_1") is None
+
     def test_ttl_expiration(self):
         store = ThreadStore(ttl_seconds=0)
         store.set("thread_1", "agent_1")
@@ -124,24 +134,28 @@ class TestThreadStore:
 class TestHandleMention:
     """Tests for _handle_mention logic"""
 
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")
-    def test_empty_question_replies_with_help(self, mock_store):
+    def test_empty_question_replies_with_help(self, mock_store, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
+        ack = MagicMock()
         event = {"text": "<@U12345>", "channel": "C123", "ts": "1234.5678"}
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
 
-        _handle_mention(event, say, client, cursor_client)
+        _handle_mention(ack, event, say, client, cursor_client)
 
+        ack.assert_called_once()
         say.assert_called_once()
         assert "質問を入力してください" in say.call_args[1]["text"]
         cursor_client.ask.assert_not_called()
 
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")
     @patch("src.bot.kashiwaas.threading.Thread")
-    def test_new_question_adds_eyes_reaction(self, mock_thread_class, mock_store):
+    def test_new_question_adds_eyes_reaction(self, mock_thread_class, mock_store, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
         # Run _process synchronously so the test is deterministic (CI runs fast and thread may finish before assert)
@@ -164,6 +178,7 @@ class TestHandleMention:
             "channel": "C123",
             "ts": "1234.5678",
         }
+        ack = MagicMock()
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
@@ -173,13 +188,15 @@ class TestHandleMention:
             messages=[AgentMessage(id="m1", type="assistant_message", text="Python is a language.")],
         )
 
-        _handle_mention(event, say, client, cursor_client)
+        _handle_mention(ack, event, say, client, cursor_client)
 
+        ack.assert_called_once()
         client.reactions_add.assert_any_call(channel="C123", timestamp="1234.5678", name="eyes")
 
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")
     @patch("src.bot.kashiwaas.threading.Thread")
-    def test_thread_ts_used_for_reply(self, mock_thread_class, mock_store):
+    def test_thread_ts_used_for_reply(self, mock_thread_class, mock_store, _mock_dup):
         """When event has thread_ts, it should be used as the reply target"""
         from src.bot.kashiwaas import _handle_mention
 
@@ -203,6 +220,7 @@ class TestHandleMention:
             "ts": "1234.9999",
             "thread_ts": "1234.5678",
         }
+        ack = MagicMock()
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
@@ -212,13 +230,15 @@ class TestHandleMention:
             messages=[AgentMessage(id="m1", type="assistant_message", text="Here is the answer.")],
         )
 
-        _handle_mention(event, say, client, cursor_client)
+        _handle_mention(ack, event, say, client, cursor_client)
 
+        ack.assert_called_once()
         client.reactions_add.assert_any_call(channel="C123", timestamp="1234.9999", name="eyes")
 
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")
     @patch("src.bot.kashiwaas.threading.Thread")
-    def test_followup_error_clears_thread_mapping(self, mock_thread_class, mock_store):
+    def test_followup_error_clears_thread_mapping(self, mock_thread_class, mock_store, _mock_dup):
         """When followup returns ERROR, the stale agent mapping should be cleared."""
         from src.bot.kashiwaas import _handle_mention
 
@@ -243,6 +263,7 @@ class TestHandleMention:
             "ts": "1234.0001",
             "thread_ts": "thread_1",
         }
+        ack = MagicMock()
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
@@ -252,7 +273,31 @@ class TestHandleMention:
             messages=[],
         )
 
-        _handle_mention(event, say, client, cursor_client)
+        _handle_mention(ack, event, say, client, cursor_client)
 
+        ack.assert_called_once()
         # Mapping should be cleared so that future mentions can create a new agent
         mock_store.remove.assert_called_with("thread_1")
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=True)
+    def test_duplicate_event_skipped_no_reply(self, mock_dup_check):
+        """When the same event is delivered again (e.g. Slack retry), we skip and do not reply."""
+        from src.bot.kashiwaas import _handle_mention
+
+        ack = MagicMock()
+        event = {
+            "text": "<@U12345> What is Python?",
+            "channel": "C123",
+            "ts": "1234.5678",
+        }
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+
+        _handle_mention(ack, event, say, client, cursor_client)
+
+        ack.assert_called_once()
+        mock_dup_check.assert_called_once_with("C123", "1234.5678")
+        say.assert_not_called()
+        client.reactions_add.assert_not_called()
+        cursor_client.ask.assert_not_called()

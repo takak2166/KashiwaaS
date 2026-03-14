@@ -166,6 +166,32 @@ class CursorClient:
             )
         return messages
 
+    def get_conversation_after_complete(
+        self,
+        agent_id: str,
+        expected_previous_message_id: Optional[str] = None,
+        max_retries: int = 3,
+        delay_seconds: float = 1.5,
+    ) -> List[AgentMessage]:
+        """
+        Retrieve the conversation after agent completion, with retries.
+
+        When expected_previous_message_id is set (e.g. from the last reply in
+        this thread), retries until the latest assistant message id differs from
+        it, so we avoid returning a stale snapshot that still shows the previous
+        answer (API eventual consistency).
+        """
+        for attempt in range(max_retries):
+            messages = self.get_conversation(agent_id)
+            latest = self.get_latest_assistant_message_message(messages)
+            if expected_previous_message_id is None or latest is None:
+                return messages
+            if latest.id != expected_previous_message_id:
+                return messages
+            if attempt < max_retries - 1:
+                time.sleep(delay_seconds)
+        return messages
+
     def send_followup(self, agent_id: str, prompt: str) -> None:
         """Send a follow-up prompt to an existing agent."""
         payload = {"prompt": {"text": prompt}}
@@ -201,29 +227,58 @@ class CursorClient:
 
         raise CursorTimeoutError(f"Agent {agent_id} did not complete within {self.poll_timeout}s")
 
-    def ask(self, prompt: str) -> AgentResult:
+    def ask(
+        self,
+        prompt: str,
+        expected_previous_message_id: Optional[str] = None,
+    ) -> AgentResult:
         """
         Create an agent, wait for completion, and return the conversation.
-
-        This is the main entry point for a new Q&A session.
         """
         agent_id = self.create_agent(prompt)
         status = self.poll_until_complete(agent_id)
-        messages = self.get_conversation(agent_id)
+        messages = self.get_conversation_after_complete(
+            agent_id, expected_previous_message_id=expected_previous_message_id
+        )
         return AgentResult(agent_id=agent_id, status=status, messages=messages)
 
-    def followup(self, agent_id: str, prompt: str) -> AgentResult:
+    def followup(
+        self,
+        agent_id: str,
+        prompt: str,
+        expected_previous_message_id: Optional[str] = None,
+    ) -> AgentResult:
         """
         Send a follow-up to an existing agent and return updated conversation.
         """
         self.send_followup(agent_id, prompt)
         status = self.poll_until_complete(agent_id)
-        messages = self.get_conversation(agent_id)
+        messages = self.get_conversation_after_complete(
+            agent_id, expected_previous_message_id=expected_previous_message_id
+        )
         return AgentResult(agent_id=agent_id, status=status, messages=messages)
 
+    def get_latest_assistant_message_message(
+        self, messages: List[AgentMessage]
+    ) -> Optional[AgentMessage]:
+        """
+        Return the most recent assistant message (full message with id and text).
+
+        Cursor API returns messages in reverse chronological order (newest first).
+        """
+        for msg in messages:
+            if msg.type == "assistant_message":
+                return msg
+        return None
+
     def get_latest_assistant_message(self, messages: List[AgentMessage]) -> Optional[str]:
-        """Extract the most recent assistant message from a conversation."""
-        for msg in reversed(messages):
+        """
+        Extract the most recent assistant message from a conversation.
+
+        Cursor API returns messages in reverse chronological order (newest first).
+        So the first assistant_message in the list is the latest.
+        """
+        for msg in messages:
             if msg.type == "assistant_message":
                 return msg.text
         return None

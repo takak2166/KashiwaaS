@@ -6,6 +6,7 @@ Slack Socket Mode application that answers questions via Cursor Cloud Agents API
 import os
 import re
 import threading
+import time
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -23,6 +24,10 @@ logger = get_logger(__name__)
 
 SLACK_MESSAGE_MAX_LENGTH = 4000
 MENTION_PATTERN = re.compile(r"<@[\w]+>")
+# Deduplicate by (channel, event_ts): skip processing if we already handled this event (e.g. Slack retry).
+PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
+_processed_events: dict[tuple[str, str], float] = {}
+_processed_events_lock = threading.Lock()
 
 thread_store = ThreadStore()
 
@@ -44,8 +49,8 @@ def create_app() -> App:
     )
 
     @app.event("app_mention")
-    def handle_mention(event, say, client):
-        _handle_mention(event, say, client, cursor_client)
+    def handle_mention(ack, event, say, client):
+        _handle_mention(ack, event, say, client, cursor_client)
 
     return app
 
@@ -83,7 +88,7 @@ def _add_reaction(client, channel: str, timestamp: str, name: str) -> None:
     try:
         client.reactions_add(channel=channel, timestamp=timestamp, name=name)
     except Exception as e:
-        logger.warning(f"Failed to add reaction '{name}': {e}")
+        logger.error(f"Failed to add reaction '{name}' (channel={channel}, ts={timestamp}): {e}")
 
 
 def _remove_reaction(client, channel: str, timestamp: str, name: str) -> None:
@@ -93,12 +98,34 @@ def _remove_reaction(client, channel: str, timestamp: str, name: str) -> None:
         logger.warning(f"Failed to remove reaction '{name}': {e}")
 
 
-def _handle_mention(event, say, client, cursor_client: CursorClient):
+def _is_duplicate_event(channel: str, event_ts: str) -> bool:
+    """Return True if we already processed this event (idempotency)."""
+    key = (channel, event_ts)
+    now = time.time()
+    with _processed_events_lock:
+        # Evict old entries
+        expired = [k for k, t in _processed_events.items() if now - t > PROCESSED_EVENT_TTL_SECONDS]
+        for k in expired:
+            del _processed_events[k]
+        if key in _processed_events:
+            return True
+        _processed_events[key] = now
+        return False
+
+
+def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
     """Process an app_mention event."""
+    # Socket Mode requires ack within 3 seconds; ack first so Slack does not timeout.
+    ack()
+
     text = event.get("text", "")
     channel = event.get("channel", "")
     event_ts = event.get("ts", "")
     thread_ts = event.get("thread_ts") or event_ts
+
+    if _is_duplicate_event(channel, event_ts):
+        logger.info(f"Duplicate app_mention skipped: channel={channel}, ts={event_ts}")
+        return
 
     logger.info(f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={text!r}")
 
@@ -113,12 +140,17 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
         try:
             agent_id = thread_store.get(thread_ts)
 
+            expected_previous_message_id = thread_store.get_last_message_id(thread_ts)
             if agent_id:
                 logger.info(f"Followup in thread {thread_ts} -> agent {agent_id}")
-                result = cursor_client.followup(agent_id, question)
+                result = cursor_client.followup(
+                    agent_id, question, expected_previous_message_id=expected_previous_message_id
+                )
             else:
                 logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
-                result = cursor_client.ask(question)
+                result = cursor_client.ask(
+                    question, expected_previous_message_id=expected_previous_message_id
+                )
                 if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
                     thread_store.set(thread_ts, result.agent_id)
 
@@ -133,17 +165,18 @@ def _handle_mention(event, say, client, cursor_client: CursorClient):
                 )
                 return
 
-            answer = cursor_client.get_latest_assistant_message(result.messages)
-            if not answer:
+            latest_msg = cursor_client.get_latest_assistant_message_message(result.messages)
+            if not latest_msg:
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
                 return
 
-            chunks = _split_message(answer)
+            chunks = _split_message(latest_msg.text)
             for chunk in chunks:
                 say(text=chunk, thread_ts=thread_ts)
 
+            thread_store.set_last_message_id(thread_ts, latest_msg.id)
             _remove_reaction(client, channel, event_ts, "eyes")
             _add_reaction(client, channel, event_ts, "white_check_mark")
 

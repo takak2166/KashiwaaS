@@ -264,11 +264,12 @@ class TestCursorClient:
             cursor_client.poll_until_complete("bc_abc123")
 
     def test_get_latest_assistant_message(self, cursor_client):
+        # API returns newest first: latest assistant is first in list
         messages = [
-            AgentMessage(id="1", type="user_message", text="question"),
-            AgentMessage(id="2", type="assistant_message", text="first answer"),
-            AgentMessage(id="3", type="user_message", text="followup"),
             AgentMessage(id="4", type="assistant_message", text="second answer"),
+            AgentMessage(id="3", type="user_message", text="followup"),
+            AgentMessage(id="2", type="assistant_message", text="first answer"),
+            AgentMessage(id="1", type="user_message", text="question"),
         ]
 
         result = cursor_client.get_latest_assistant_message(messages)
@@ -286,6 +287,52 @@ class TestCursorClient:
         result = cursor_client.get_latest_assistant_message([])
         assert result is None
 
+    @patch("src.cursor.client.time.sleep")
+    def test_get_conversation_after_complete_retries_when_latest_id_unchanged(self, mock_sleep, cursor_client):
+        """When expected_previous_message_id equals latest message id, retry until it changes."""
+        stale = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="old_id", type="assistant_message", text="old answer"),
+        ]
+        fresh = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="new_id", type="assistant_message", text="new answer"),
+        ]
+        with patch.object(cursor_client, "get_conversation", side_effect=[stale, fresh]):
+            result = cursor_client.get_conversation_after_complete(
+                "agent_1",
+                expected_previous_message_id="old_id",
+                max_retries=3,
+                delay_seconds=0.01,
+            )
+        assert len(result) == 2
+        assert result[1].id == "new_id" and result[1].text == "new answer"
+        mock_sleep.assert_called_once()
+
+    @patch("src.cursor.client.time.sleep")
+    def test_get_conversation_after_complete_no_retry_when_id_differs(self, mock_sleep, cursor_client):
+        """When latest message id differs from expected_previous_message_id, return immediately."""
+        messages = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="new_id", type="assistant_message", text="answer"),
+        ]
+        with patch.object(cursor_client, "get_conversation", return_value=messages):
+            result = cursor_client.get_conversation_after_complete(
+                "agent_1", expected_previous_message_id="old_id", max_retries=3
+            )
+        assert len(result) == 2
+        assert result[1].id == "new_id"
+        mock_sleep.assert_not_called()
+
+    def test_get_latest_assistant_message_message(self, cursor_client):
+        messages = [
+            AgentMessage(id="4", type="assistant_message", text="second"),
+            AgentMessage(id="2", type="assistant_message", text="first"),
+        ]
+        msg = cursor_client.get_latest_assistant_message_message(messages)
+        assert msg is not None
+        assert msg.id == "4" and msg.text == "second"
+
     def test_basic_auth_header(self, cursor_client):
         assert "Authorization" in cursor_client.headers
         assert cursor_client.headers["Authorization"].startswith("Basic ")
@@ -293,19 +340,20 @@ class TestCursorClient:
     @patch("src.cursor.client.requests.request")
     def test_ask_full_flow(self, mock_request, cursor_client):
         """Test the full ask flow: create -> poll -> get conversation"""
+        conv_resp = self._make_response(
+            200,
+            {
+                "id": "bc_abc123",
+                "messages": [
+                    {"id": "msg_001", "type": "user_message", "text": "What is Python?"},
+                    {"id": "msg_002", "type": "assistant_message", "text": "A language."},
+                ],
+            },
+        )
         responses = [
             self._make_response(200, {"id": "bc_abc123", "status": "CREATING"}),
             self._make_response(200, {"id": "bc_abc123", "status": "FINISHED"}),
-            self._make_response(
-                200,
-                {
-                    "id": "bc_abc123",
-                    "messages": [
-                        {"id": "msg_001", "type": "user_message", "text": "What is Python?"},
-                        {"id": "msg_002", "type": "assistant_message", "text": "A language."},
-                    ],
-                },
-            ),
+            conv_resp,
         ]
         mock_request.side_effect = responses
 
@@ -318,21 +366,22 @@ class TestCursorClient:
     @patch("src.cursor.client.requests.request")
     def test_followup_full_flow(self, mock_request, cursor_client):
         """Test the full followup flow: followup -> poll -> get conversation"""
+        conv_resp = self._make_response(
+            200,
+            {
+                "id": "bc_abc123",
+                "messages": [
+                    {"id": "msg_001", "type": "user_message", "text": "What is Python?"},
+                    {"id": "msg_002", "type": "assistant_message", "text": "A language."},
+                    {"id": "msg_003", "type": "user_message", "text": "Tell me more"},
+                    {"id": "msg_004", "type": "assistant_message", "text": "More details."},
+                ],
+            },
+        )
         responses = [
             self._make_response(200, {"id": "bc_abc123"}),
             self._make_response(200, {"id": "bc_abc123", "status": "FINISHED"}),
-            self._make_response(
-                200,
-                {
-                    "id": "bc_abc123",
-                    "messages": [
-                        {"id": "msg_001", "type": "user_message", "text": "What is Python?"},
-                        {"id": "msg_002", "type": "assistant_message", "text": "A language."},
-                        {"id": "msg_003", "type": "user_message", "text": "Tell me more"},
-                        {"id": "msg_004", "type": "assistant_message", "text": "More details."},
-                    ],
-                },
-            ),
+            conv_resp,
         ]
         mock_request.side_effect = responses
 

@@ -18,6 +18,7 @@ DEFAULT_TTL_SECONDS = 86400  # 24 hours
 @dataclass
 class _Entry:
     agent_id: str
+    last_message_id: Optional[str] = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -44,10 +45,25 @@ class ThreadStore:
             return entry.agent_id
 
     def set(self, thread_ts: str, agent_id: str) -> None:
-        """Associate a thread with an agent."""
+        """Associate a thread with an agent (clears last_message_id)."""
         with self._lock:
             self._store[thread_ts] = _Entry(agent_id=agent_id)
             logger.debug(f"Stored mapping: {thread_ts} -> {agent_id}")
+
+    def get_last_message_id(self, thread_ts: str) -> Optional[str]:
+        """Return the last assistant message id for this thread, or None."""
+        with self._lock:
+            self._evict_expired()
+            entry = self._store.get(thread_ts)
+            return entry.last_message_id if entry else None
+
+    def set_last_message_id(self, thread_ts: str, message_id: str) -> None:
+        """Record the last assistant message id for this thread (for retry detection)."""
+        with self._lock:
+            entry = self._store.get(thread_ts)
+            if entry is not None:
+                entry.last_message_id = message_id
+                logger.debug(f"Stored last_message_id for {thread_ts} -> {message_id}")
 
     def remove(self, thread_ts: str) -> None:
         """Remove a mapping if it exists."""
