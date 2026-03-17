@@ -304,6 +304,22 @@ class TestHandleMention:
         # Mapping should be cleared so that future mentions can create a new agent
         mock_store.remove.assert_called_with("thread_1")
 
+
+class TestThreadLocks:
+    def test_thread_locks_evicted_when_unused(self):
+        from src.bot import kashiwaas as botmod
+
+        # Make TTL short for test
+        botmod.THREAD_LOCK_TTL_SECONDS = 0
+        lock = botmod._get_thread_lock("thread_x")
+        assert lock is not None
+
+        # Trigger eviction on next access
+        botmod._get_thread_lock("thread_y")
+
+        with botmod._thread_locks_lock:
+            assert "thread_x" not in botmod._thread_locks
+
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=True)
     def test_duplicate_event_skipped_no_reply(self, mock_dup_check):
         """When the same event is delivered again (e.g. Slack retry), we skip and do not reply."""
@@ -376,3 +392,49 @@ class TestHandleMention:
         time.sleep(0.2)
 
         assert cursor_client.followup.call_count == 2
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
+    @patch("src.bot.kashiwaas.thread_store")
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_no_assistant_message_clears_thread_mapping(
+        self, mock_thread_class, mock_store, _mock_dup
+    ):
+        """When no assistant message is returned, clear mapping so thread can recover."""
+        from src.bot.kashiwaas import _handle_mention
+
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+
+            def start():
+                if target:
+                    target()
+
+            mock_thread.start.side_effect = start
+            return mock_thread
+
+        mock_thread_class.side_effect = run_target_immediately
+
+        mock_store.get.return_value = "agent_1"
+        mock_store.get_last_message_id.return_value = "m_prev"
+
+        event = {
+            "text": "<@U12345> followup question",
+            "channel": "C123",
+            "ts": "1234.0002",
+            "thread_ts": "thread_1",
+        }
+        ack = MagicMock()
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+        cursor_client.followup.return_value = AgentResult(
+            agent_id="agent_1",
+            status=AgentStatus.FINISHED,
+            messages=[],  # no assistant messages
+        )
+        cursor_client.get_latest_assistant_message_message.return_value = None
+
+        _handle_mention(ack, event, say, client, cursor_client)
+
+        mock_store.remove.assert_called_with("thread_1")

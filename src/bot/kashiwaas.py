@@ -8,6 +8,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -32,17 +33,40 @@ _processed_events_lock = threading.Lock()
 
 thread_store = ThreadStore()
 
-_thread_locks: dict[str, threading.Lock] = {}
+THREAD_LOCK_TTL_SECONDS = 86400  # 24 hours
+
+
+@dataclass
+class _ThreadLockEntry:
+    lock: threading.Lock
+    last_used_at: float = field(default_factory=time.time)
+
+
+_thread_locks: dict[str, _ThreadLockEntry] = {}
 _thread_locks_lock = threading.Lock()
+
+
+def _evict_thread_locks(now: float) -> None:
+    # Must be called under _thread_locks_lock
+    expired_keys = [
+        thread_ts
+        for thread_ts, entry in _thread_locks.items()
+        if now - entry.last_used_at > THREAD_LOCK_TTL_SECONDS and not entry.lock.locked()
+    ]
+    for thread_ts in expired_keys:
+        del _thread_locks[thread_ts]
 
 
 def _get_thread_lock(thread_ts: str) -> threading.Lock:
     with _thread_locks_lock:
-        lock = _thread_locks.get(thread_ts)
-        if lock is None:
-            lock = threading.Lock()
-            _thread_locks[thread_ts] = lock
-        return lock
+        now = time.time()
+        _evict_thread_locks(now)
+        entry = _thread_locks.get(thread_ts)
+        if entry is None:
+            entry = _ThreadLockEntry(lock=threading.Lock(), last_used_at=now)
+            _thread_locks[thread_ts] = entry
+        entry.last_used_at = now
+        return entry.lock
 
 
 @contextmanager
@@ -52,6 +76,10 @@ def _thread_ts_lock(thread_ts: str):
     try:
         yield
     finally:
+        with _thread_locks_lock:
+            entry = _thread_locks.get(thread_ts)
+            if entry is not None:
+                entry.last_used_at = time.time()
         lock.release()
 
 
@@ -203,6 +231,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
 
                 latest_msg = cursor_client.get_latest_assistant_message_message(result.messages)
                 if not latest_msg:
+                    thread_store.remove(thread_ts)
                     _remove_reaction(client, channel, event_ts, "eyes")
                     _add_reaction(client, channel, event_ts, "x")
                     say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
