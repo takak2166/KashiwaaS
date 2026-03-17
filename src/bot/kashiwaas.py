@@ -241,11 +241,17 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 last_sent_message_id = thread_store.get_last_message_id(thread_ts)
                 if last_sent_message_id and latest_msg.id == last_sent_message_id:
                     logger.info(
-                        f"Skip sending duplicate assistant message in thread {thread_ts}: {latest_msg.id}"
+                        f"Duplicate assistant message id detected in thread {thread_ts}: {latest_msg.id}. Retrying conversation fetch..."
                     )
-                    _remove_reaction(client, channel, event_ts, "eyes")
-                    _add_reaction(client, channel, event_ts, "white_check_mark")
-                    return
+                    refreshed = cursor_client.get_conversation_after_complete(
+                        result.agent_id,
+                        expected_previous_message_id=last_sent_message_id,
+                    )
+                    latest_msg = cursor_client.get_latest_assistant_message_message(refreshed)
+                    if not latest_msg or latest_msg.id == last_sent_message_id:
+                        _remove_reaction(client, channel, event_ts, "eyes")
+                        _add_reaction(client, channel, event_ts, "white_check_mark")
+                        return
 
                 chunks = _split_message(latest_msg.text)
                 for chunk in chunks:

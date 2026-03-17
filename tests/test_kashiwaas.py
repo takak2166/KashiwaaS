@@ -478,10 +478,15 @@ class TestThreadLocks:
             status=AgentStatus.FINISHED,
             messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
         )
-        cursor_client.get_latest_assistant_message_message.return_value = AgentMessage(
-            id="m_dup", type="assistant_message", text="duplicate"
-        )
+        cursor_client.get_latest_assistant_message_message.side_effect = [
+            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
+            AgentMessage(id="m_new", type="assistant_message", text="new answer"),
+        ]
+        cursor_client.get_conversation_after_complete.return_value = [
+            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
+            AgentMessage(id="m_new", type="assistant_message", text="new answer"),
+        ]
 
         _handle_mention(ack, event, say, client, cursor_client)
 
-        say.assert_not_called()
+        say.assert_called()
