@@ -265,7 +265,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     for attempt in range(max_retries):
                         logger.info(
                             "Duplicate assistant message detected; retrying conversation fetch "
-                            (
+                            + (
                                 f"(attempt={attempt + 1}/{max_retries}, thread_ts={thread_ts}, "
                                 f"event_ts={event_ts}, msg_id={latest_msg.id})"
                             )
