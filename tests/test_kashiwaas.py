@@ -490,3 +490,55 @@ class TestThreadLocks:
         _handle_mention(ack, event, say, client, cursor_client)
 
         say.assert_called()
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
+    @patch("src.bot.kashiwaas.thread_store")
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_duplicate_assistant_message_retry_still_duplicate_returns_error(
+        self, mock_thread_class, mock_store, _mock_dup
+    ):
+        from src.bot.kashiwaas import _handle_mention
+
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+
+            def start():
+                if target:
+                    target()
+
+            mock_thread.start.side_effect = start
+            return mock_thread
+
+        mock_thread_class.side_effect = run_target_immediately
+
+        mock_store.get.return_value = "agent_1"
+        mock_store.get_last_message_id.return_value = "m_dup"
+
+        event = {
+            "text": "<@U12345> followup question",
+            "channel": "C123",
+            "ts": "1234.0004",
+            "thread_ts": "thread_1",
+        }
+        ack = MagicMock()
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+        cursor_client.followup.return_value = AgentResult(
+            agent_id="agent_1",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
+        )
+        cursor_client.get_latest_assistant_message_message.side_effect = [
+            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
+            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
+        ]
+        cursor_client.get_conversation_after_complete.return_value = [
+            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
+        ]
+
+        _handle_mention(ack, event, say, client, cursor_client)
+
+        say.assert_called_once()
+        assert "まだ生成されていない" in say.call_args[1]["text"]

@@ -259,7 +259,11 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     latest_msg = cursor_client.get_latest_assistant_message_message(refreshed)
                     if not latest_msg or latest_msg.id == last_sent_message_id:
                         _remove_reaction(client, channel, event_ts, "eyes")
-                        _add_reaction(client, channel, event_ts, "white_check_mark")
+                        _add_reaction(client, channel, event_ts, "x")
+                        say(
+                            text="回答がまだ生成されていないようです。少し待ってからもう一度お試しください。",
+                            thread_ts=thread_ts,
+                        )
                         return
 
                 chunks = _split_message(latest_msg.text)
