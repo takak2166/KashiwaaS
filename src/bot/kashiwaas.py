@@ -266,11 +266,16 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                         )
                         return
 
+                logger.info(
+                    f"Sending assistant message: thread_ts={thread_ts}, event_ts={event_ts}, msg_id={latest_msg.id}"
+                )
+                # Set before sending to avoid re-sending the same message on retries/errors.
+                thread_store.set_last_message_id(thread_ts, latest_msg.id)
+
                 chunks = _split_message(latest_msg.text)
                 for chunk in chunks:
                     say(text=chunk, thread_ts=thread_ts)
 
-                thread_store.set_last_message_id(thread_ts, latest_msg.id)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "white_check_mark")
 
