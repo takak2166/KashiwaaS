@@ -309,16 +309,20 @@ class TestThreadLocks:
     def test_thread_locks_evicted_when_unused(self):
         from src.bot import kashiwaas as botmod
 
-        # Make TTL short for test
-        botmod.THREAD_LOCK_TTL_SECONDS = 0
-        lock = botmod._get_thread_lock("thread_x")
-        assert lock is not None
+        old_ttl = botmod.THREAD_LOCK_TTL_SECONDS
+        try:
+            # Make TTL short for test
+            botmod.THREAD_LOCK_TTL_SECONDS = 0
+            lock = botmod._get_thread_lock("thread_x")
+            assert lock is not None
 
-        # Trigger eviction on next access
-        botmod._get_thread_lock("thread_y")
+            # Trigger eviction on next access
+            botmod._get_thread_lock("thread_y")
 
-        with botmod._thread_locks_lock:
-            assert "thread_x" not in botmod._thread_locks
+            with botmod._thread_locks_lock:
+                assert "thread_x" not in botmod._thread_locks
+        finally:
+            botmod.THREAD_LOCK_TTL_SECONDS = old_ttl
 
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=True)
     def test_duplicate_event_skipped_no_reply(self, mock_dup_check):
