@@ -247,7 +247,10 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 last_sent_message_id = thread_store.get_last_message_id(thread_ts)
                 if last_sent_message_id and latest_msg.id == last_sent_message_id:
                     logger.info(
-                        f"Duplicate assistant message id detected in thread {thread_ts}: {latest_msg.id}. Retrying conversation fetch..."
+                        (
+                            f"Duplicate assistant message id detected in thread {thread_ts}: "
+                            f"{latest_msg.id}. Retrying conversation fetch..."
+                        )
                     )
                     refreshed = cursor_client.get_conversation_after_complete(
                         result.agent_id,

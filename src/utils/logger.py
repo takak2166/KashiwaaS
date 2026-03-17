@@ -18,6 +18,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
 
 # Configure logger only once to avoid duplicate output when module is reloaded or imported from multiple paths
+
+
 def _configure_logger() -> None:
     if len(logger._core.handlers) >= 3:
         return  # Already configured (stderr + app.log + error.log)
