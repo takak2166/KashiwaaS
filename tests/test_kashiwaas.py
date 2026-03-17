@@ -132,9 +132,13 @@ class TestThreadStore:
         assert store.get_last_message_id("thread_1") is None
         store.set_last_message_id("thread_1", "msg_123")
         assert store.get_last_message_id("thread_1") == "msg_123"
+        assert store.get_last_message_fingerprint("thread_1") is None
+        store.set_last_message_fingerprint("thread_1", "fp_123")
+        assert store.get_last_message_fingerprint("thread_1") == "fp_123"
         store.remove("thread_1")
         assert store.get("thread_1") is None
         assert store.get_last_message_id("thread_1") is None
+        assert store.get_last_message_fingerprint("thread_1") is None
 
     def test_ttl_expiration(self):
         store = ThreadStore(ttl_seconds=0)
@@ -378,6 +382,7 @@ class TestThreadLocks:
         client = MagicMock()
         cursor_client = MagicMock()
         cursor_client.followup.side_effect = followup_side_effect
+        cursor_client.get_latest_assistant_message_message.side_effect = lambda msgs: msgs[-1] if msgs else None
 
         # thread_store is global; set mapping so both calls use followup path
         from src.bot import kashiwaas as botmod
@@ -421,6 +426,7 @@ class TestThreadLocks:
 
         mock_store.get.return_value = "agent_1"
         mock_store.get_last_message_id.return_value = "m_prev"
+        mock_store.get_last_message_fingerprint.return_value = None
 
         event = {
             "text": "<@U12345> followup question",
@@ -466,6 +472,7 @@ class TestThreadLocks:
 
         mock_store.get.return_value = "agent_1"
         mock_store.get_last_message_id.return_value = "m_dup"
+        mock_store.get_last_message_fingerprint.return_value = None
 
         event = {
             "text": "<@U12345> followup question",
@@ -518,6 +525,7 @@ class TestThreadLocks:
 
         mock_store.get.return_value = "agent_1"
         mock_store.get_last_message_id.return_value = "m_dup"
+        mock_store.get_last_message_fingerprint.return_value = None
 
         event = {
             "text": "<@U12345> followup question",
@@ -545,4 +553,4 @@ class TestThreadLocks:
         _handle_mention(ack, event, say, client, cursor_client)
 
         say.assert_called_once()
-        assert "まだ生成されていない" in say.call_args[1]["text"]
+        assert "同じ内容" in say.call_args[1]["text"]

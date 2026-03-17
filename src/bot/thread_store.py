@@ -19,6 +19,7 @@ DEFAULT_TTL_SECONDS = 86400  # 24 hours
 class _Entry:
     agent_id: str
     last_message_id: Optional[str] = None
+    last_message_fingerprint: Optional[str] = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -45,7 +46,7 @@ class ThreadStore:
             return entry.agent_id
 
     def set(self, thread_ts: str, agent_id: str) -> None:
-        """Associate a thread with an agent (clears last_message_id)."""
+        """Associate a thread with an agent (clears last_message_id/fingerprint)."""
         with self._lock:
             self._store[thread_ts] = _Entry(agent_id=agent_id)
             logger.debug(f"Stored mapping: {thread_ts} -> {agent_id}")
@@ -64,6 +65,21 @@ class ThreadStore:
             if entry is not None:
                 entry.last_message_id = message_id
                 logger.debug(f"Stored last_message_id for {thread_ts} -> {message_id}")
+
+    def get_last_message_fingerprint(self, thread_ts: str) -> Optional[str]:
+        """Return the last assistant message fingerprint for this thread, or None."""
+        with self._lock:
+            self._evict_expired()
+            entry = self._store.get(thread_ts)
+            return entry.last_message_fingerprint if entry else None
+
+    def set_last_message_fingerprint(self, thread_ts: str, fingerprint: str) -> None:
+        """Record the last assistant message fingerprint for this thread (for duplicate content detection)."""
+        with self._lock:
+            entry = self._store.get(thread_ts)
+            if entry is not None:
+                entry.last_message_fingerprint = fingerprint
+                logger.debug(f"Stored last_message_fingerprint for {thread_ts}")
 
     def remove(self, thread_ts: str) -> None:
         """Remove a mapping if it exists."""

@@ -9,6 +9,7 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -122,6 +123,11 @@ def _extract_question(text: str) -> str:
     """Remove mention tags and extract the actual question text."""
     question = MENTION_PATTERN.sub("", text).strip()
     return question
+
+
+def _fingerprint_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").rstrip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> list[str]:
@@ -243,25 +249,40 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
                     return
 
-                # Prevent sending the same assistant message twice for this thread
                 last_sent_message_id = thread_store.get_last_message_id(thread_ts)
-                if last_sent_message_id and latest_msg.id == last_sent_message_id:
+                last_sent_fingerprint = thread_store.get_last_message_fingerprint(thread_ts)
+                current_fingerprint = _fingerprint_text(latest_msg.text)
+
+                needs_retry = (
+                    (last_sent_message_id and latest_msg.id == last_sent_message_id)
+                    or (last_sent_fingerprint and current_fingerprint == last_sent_fingerprint)
+                )
+                if needs_retry:
                     logger.info(
-                        (
-                            f"Duplicate assistant message id detected in thread {thread_ts}: "
-                            f"{latest_msg.id}. Retrying conversation fetch..."
-                        )
+                        "Duplicate assistant message detected; retrying conversation fetch "
+                        f"(thread_ts={thread_ts}, event_ts={event_ts}, msg_id={latest_msg.id})"
                     )
                     refreshed = cursor_client.get_conversation_after_complete(
                         result.agent_id,
-                        expected_previous_message_id=last_sent_message_id,
+                        expected_previous_message_id=latest_msg.id,
                     )
                     latest_msg = cursor_client.get_latest_assistant_message_message(refreshed)
-                    if not latest_msg or latest_msg.id == last_sent_message_id:
+                    if not latest_msg:
+                        thread_store.remove(thread_ts)
+                        _remove_reaction(client, channel, event_ts, "eyes")
+                        _add_reaction(client, channel, event_ts, "x")
+                        say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
+                        return
+                    current_fingerprint = _fingerprint_text(latest_msg.text)
+                    still_duplicate = (
+                        (last_sent_message_id and latest_msg.id == last_sent_message_id)
+                        or (last_sent_fingerprint and current_fingerprint == last_sent_fingerprint)
+                    )
+                    if still_duplicate:
                         _remove_reaction(client, channel, event_ts, "eyes")
                         _add_reaction(client, channel, event_ts, "x")
                         say(
-                            text="回答がまだ生成されていないようです。少し待ってからもう一度お試しください。",
+                            text="同じ内容の回答が続いているようです。少し待ってからもう一度お試しください。",
                             thread_ts=thread_ts,
                         )
                         return
@@ -271,6 +292,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 )
                 # Set before sending to avoid re-sending the same message on retries/errors.
                 thread_store.set_last_message_id(thread_ts, latest_msg.id)
+                thread_store.set_last_message_fingerprint(thread_ts, current_fingerprint)
 
                 chunks = _split_message(latest_msg.text)
                 for chunk in chunks:
