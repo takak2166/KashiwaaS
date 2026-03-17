@@ -116,6 +116,10 @@ def create_app() -> App:
     def handle_mention(ack, event, say, client):
         _handle_mention(ack, event, say, client, cursor_client)
 
+    @app.event("message")
+    def handle_message_events(body, logger):
+        logger.info(body)
+
     return app
 
 
