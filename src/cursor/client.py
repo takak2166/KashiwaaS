@@ -250,9 +250,13 @@ class CursorClient:
         """
         agent_id = self.create_agent(prompt)
         status = self.poll_until_complete(agent_id)
-        messages = self.get_conversation_after_complete(
-            agent_id, expected_previous_message_id=expected_previous_message_id
-        )
+        if status == AgentStatus.FINISHED:
+            messages = self.get_conversation_after_complete(
+                agent_id, expected_previous_message_id=expected_previous_message_id
+            )
+        else:
+            # Avoid pointless retry delays for ERROR/STOPPED agents
+            messages = self.get_conversation(agent_id)
         return AgentResult(agent_id=agent_id, status=status, messages=messages)
 
     def followup(
@@ -266,9 +270,13 @@ class CursorClient:
         """
         self.send_followup(agent_id, prompt)
         status = self.poll_until_complete(agent_id)
-        messages = self.get_conversation_after_complete(
-            agent_id, expected_previous_message_id=expected_previous_message_id
-        )
+        if status == AgentStatus.FINISHED:
+            messages = self.get_conversation_after_complete(
+                agent_id, expected_previous_message_id=expected_previous_message_id
+            )
+        else:
+            # Avoid pointless retry delays for ERROR/STOPPED agents
+            messages = self.get_conversation(agent_id)
         return AgentResult(agent_id=agent_id, status=status, messages=messages)
 
     def get_latest_assistant_message_message(

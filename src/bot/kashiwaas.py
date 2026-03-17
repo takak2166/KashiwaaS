@@ -9,7 +9,9 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -21,6 +23,10 @@ from src.cursor.client import (
     CursorTimeoutError,
 )
 from src.utils.logger import get_logger
+
+dotenv_path = Path(".env")
+if dotenv_path.exists():
+    load_dotenv(dotenv_path)
 
 logger = get_logger(__name__)
 

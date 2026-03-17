@@ -404,6 +404,21 @@ class TestCursorClient:
         assert result.status == AgentStatus.FINISHED
         assert len(result.messages) == 4
 
+    @patch("src.cursor.client.requests.request")
+    def test_followup_error_does_not_retry_conversation(self, mock_request, cursor_client):
+        """When agent is ERROR, followup should fetch conversation without retry backoff."""
+        responses = [
+            self._make_response(200, {"id": "bc_abc123"}),  # followup POST
+            self._make_response(200, {"id": "bc_abc123", "status": "ERROR"}),  # status
+            self._make_response(200, {"id": "bc_abc123", "messages": []}),  # conversation
+        ]
+        mock_request.side_effect = responses
+
+        result = cursor_client.followup("bc_abc123", "Tell me more", expected_previous_message_id="old_id")
+
+        assert result.status == AgentStatus.ERROR
+        assert result.messages == []
+
     @staticmethod
     def _make_response(status_code, json_data):
         resp = MagicMock()
