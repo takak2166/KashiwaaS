@@ -253,32 +253,35 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 last_sent_fingerprint = thread_store.get_last_message_fingerprint(thread_ts)
                 current_fingerprint = _fingerprint_text(latest_msg.text)
 
-                needs_retry = (
-                    (last_sent_message_id and latest_msg.id == last_sent_message_id)
-                    or (last_sent_fingerprint and current_fingerprint == last_sent_fingerprint)
-                )
-                if needs_retry:
-                    logger.info(
-                        "Duplicate assistant message detected; retrying conversation fetch "
-                        f"(thread_ts={thread_ts}, event_ts={event_ts}, msg_id={latest_msg.id})"
-                    )
-                    refreshed = cursor_client.get_conversation_after_complete(
-                        result.agent_id,
-                        expected_previous_message_id=latest_msg.id,
-                    )
-                    latest_msg = cursor_client.get_latest_assistant_message_message(refreshed)
-                    if not latest_msg:
-                        thread_store.remove(thread_ts)
-                        _remove_reaction(client, channel, event_ts, "eyes")
-                        _add_reaction(client, channel, event_ts, "x")
-                        say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
-                        return
-                    current_fingerprint = _fingerprint_text(latest_msg.text)
-                    still_duplicate = (
+                def _is_duplicate() -> bool:
+                    return (
                         (last_sent_message_id and latest_msg.id == last_sent_message_id)
                         or (last_sent_fingerprint and current_fingerprint == last_sent_fingerprint)
                     )
-                    if still_duplicate:
+
+                if _is_duplicate():
+                    max_retries = getattr(cursor_client, "conversation_retry_max_retries", 4)
+                    delay_seconds = getattr(cursor_client, "conversation_retry_delay_seconds", 1.5)
+                    for attempt in range(max_retries):
+                        logger.info(
+                            "Duplicate assistant message detected; retrying conversation fetch "
+                            (
+                                f"(attempt={attempt + 1}/{max_retries}, thread_ts={thread_ts}, "
+                                f"event_ts={event_ts}, msg_id={latest_msg.id})"
+                            )
+                        )
+                        if attempt > 0:
+                            time.sleep(delay_seconds * (2**(attempt - 1)))
+                        refreshed = cursor_client.get_conversation(result.agent_id)
+                        latest = cursor_client.get_latest_assistant_message_message(refreshed)
+                        if not latest:
+                            break
+                        latest_msg = latest
+                        current_fingerprint = _fingerprint_text(latest_msg.text)
+                        if not _is_duplicate():
+                            break
+
+                    if _is_duplicate():
                         _remove_reaction(client, channel, event_ts, "eyes")
                         _add_reaction(client, channel, event_ts, "x")
                         say(
