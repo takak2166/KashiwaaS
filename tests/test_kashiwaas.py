@@ -3,6 +3,7 @@ Tests for KashiwaaS bot handler and utilities
 """
 
 import time
+import threading
 from unittest.mock import MagicMock, patch
 
 from src.bot.kashiwaas import _extract_question, _split_message
@@ -325,3 +326,53 @@ class TestHandleMention:
         say.assert_not_called()
         client.reactions_add.assert_not_called()
         cursor_client.ask.assert_not_called()
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
+    def test_same_thread_processed_sequentially(self, _mock_dup):
+        """Requests in the same thread_ts are processed sequentially (no concurrent followup)."""
+        from src.bot.kashiwaas import _handle_mention
+
+        started = threading.Event()
+        unblock = threading.Event()
+        in_flight = 0
+        in_flight_lock = threading.Lock()
+
+        def followup_side_effect(*_args, **_kwargs):
+            nonlocal in_flight
+            with in_flight_lock:
+                in_flight += 1
+                # If this ever becomes >1, we processed concurrently (bad)
+                assert in_flight == 1
+            started.set()
+            unblock.wait(timeout=2)
+            with in_flight_lock:
+                in_flight -= 1
+            return AgentResult(
+                agent_id="agent_1",
+                status=AgentStatus.FINISHED,
+                messages=[AgentMessage(id="m1", type="assistant_message", text="ok")],
+            )
+
+        ack1, ack2 = MagicMock(), MagicMock()
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+        cursor_client.followup.side_effect = followup_side_effect
+
+        # thread_store is global; set mapping so both calls use followup path
+        from src.bot import kashiwaas as botmod
+
+        botmod.thread_store.set("thread_1", "agent_1")
+
+        event1 = {"text": "<@U12345> one", "channel": "C123", "ts": "1.0", "thread_ts": "thread_1"}
+        event2 = {"text": "<@U12345> two", "channel": "C123", "ts": "2.0", "thread_ts": "thread_1"}
+
+        _handle_mention(ack1, event1, say, client, cursor_client)
+        _handle_mention(ack2, event2, say, client, cursor_client)
+
+        assert started.wait(timeout=2)
+        # Allow first to finish; second can then proceed
+        unblock.set()
+        time.sleep(0.2)
+
+        assert cursor_client.followup.call_count == 2

@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -30,6 +31,28 @@ _processed_events: dict[tuple[str, str], float] = {}
 _processed_events_lock = threading.Lock()
 
 thread_store = ThreadStore()
+
+_thread_locks: dict[str, threading.Lock] = {}
+_thread_locks_lock = threading.Lock()
+
+
+def _get_thread_lock(thread_ts: str) -> threading.Lock:
+    with _thread_locks_lock:
+        lock = _thread_locks.get(thread_ts)
+        if lock is None:
+            lock = threading.Lock()
+            _thread_locks[thread_ts] = lock
+        return lock
+
+
+@contextmanager
+def _thread_ts_lock(thread_ts: str):
+    lock = _get_thread_lock(thread_ts)
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def create_app() -> App:
@@ -149,81 +172,85 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
     _add_reaction(client, channel, event_ts, "eyes")
 
     def _process():
-        try:
-            agent_id = thread_store.get(thread_ts)
+        with _thread_ts_lock(thread_ts):
+            try:
+                agent_id = thread_store.get(thread_ts)
 
-            expected_previous_message_id = thread_store.get_last_message_id(thread_ts)
-            if agent_id:
-                logger.info(f"Followup in thread {thread_ts} -> agent {agent_id}")
-                result = cursor_client.followup(
-                    agent_id, question, expected_previous_message_id=expected_previous_message_id
-                )
-            else:
-                logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
-                result = cursor_client.ask(
-                    question, expected_previous_message_id=expected_previous_message_id
-                )
-                if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                    thread_store.set(thread_ts, result.agent_id)
+                expected_previous_message_id = thread_store.get_last_message_id(thread_ts)
+                if agent_id:
+                    logger.info(f"Followup in thread {thread_ts} -> agent {agent_id}")
+                    result = cursor_client.followup(
+                        agent_id, question, expected_previous_message_id=expected_previous_message_id
+                    )
+                else:
+                    logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
+                    result = cursor_client.ask(
+                        question, expected_previous_message_id=expected_previous_message_id
+                    )
+                    if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
+                        thread_store.set(thread_ts, result.agent_id)
 
-            if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                # Clear mapping so the next mention creates a fresh agent.
+                if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
+                    # Clear mapping so the next mention creates a fresh agent.
+                    thread_store.remove(thread_ts)
+                    _remove_reaction(client, channel, event_ts, "eyes")
+                    _add_reaction(client, channel, event_ts, "x")
+                    say(
+                        text="申し訳ありません、回答の生成中にエラーが発生しました。しばらくしてからお試しください。",
+                        thread_ts=thread_ts,
+                    )
+                    return
+
+                latest_msg = cursor_client.get_latest_assistant_message_message(result.messages)
+                if not latest_msg:
+                    _remove_reaction(client, channel, event_ts, "eyes")
+                    _add_reaction(client, channel, event_ts, "x")
+                    say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
+                    return
+
+                chunks = _split_message(latest_msg.text)
+                for chunk in chunks:
+                    say(text=chunk, thread_ts=thread_ts)
+
+                thread_store.set_last_message_id(thread_ts, latest_msg.id)
+                _remove_reaction(client, channel, event_ts, "eyes")
+                _add_reaction(client, channel, event_ts, "white_check_mark")
+
+            except CursorTimeoutError:
+                # Treat timeouts as a terminal failure for this agent; allow a fresh agent on retry.
                 thread_store.remove(thread_ts)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(
-                    text="申し訳ありません、回答の生成中にエラーが発生しました。しばらくしてからお試しください。",
+                    text="回答の生成がタイムアウトしました。質問を短くするか、もう一度お試しください。",
                     thread_ts=thread_ts,
                 )
-                return
-
-            latest_msg = cursor_client.get_latest_assistant_message_message(result.messages)
-            if not latest_msg:
+            except CursorAPIError as e:
+                logger.error(f"Cursor API error: {e}")
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
-                say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
-                return
-
-            chunks = _split_message(latest_msg.text)
-            for chunk in chunks:
-                say(text=chunk, thread_ts=thread_ts)
-
-            thread_store.set_last_message_id(thread_ts, latest_msg.id)
-            _remove_reaction(client, channel, event_ts, "eyes")
-            _add_reaction(client, channel, event_ts, "white_check_mark")
-
-        except CursorTimeoutError:
-            # Treat timeouts as a terminal failure for this agent; allow a fresh agent on retry.
-            thread_store.remove(thread_ts)
-            _remove_reaction(client, channel, event_ts, "eyes")
-            _add_reaction(client, channel, event_ts, "x")
-            say(
-                text="回答の生成がタイムアウトしました。質問を短くするか、もう一度お試しください。",
-                thread_ts=thread_ts,
-            )
-        except CursorAPIError as e:
-            logger.error(f"Cursor API error: {e}")
-            _remove_reaction(client, channel, event_ts, "eyes")
-            _add_reaction(client, channel, event_ts, "x")
-            if e.status_code in (401, 403):
-                say(text="Cursor API の認証設定に問題があります。管理者に確認してください。", thread_ts=thread_ts)
-            else:
-                # For non-auth API errors, assume the agent is broken and clear the mapping.
+                if e.status_code in (401, 403):
+                    say(
+                        text="Cursor API の認証設定に問題があります。管理者に確認してください。",
+                        thread_ts=thread_ts,
+                    )
+                else:
+                    # For non-auth API errors, assume the agent is broken and clear the mapping.
+                    thread_store.remove(thread_ts)
+                    say(
+                        text="申し訳ありません、回答の取得に失敗しました。しばらくしてからお試しください。",
+                        thread_ts=thread_ts,
+                    )
+            except Exception as e:
+                logger.error(f"Unexpected error handling mention: {e}")
+                # On unexpected errors, clear the mapping to avoid trapping the thread with a bad agent.
                 thread_store.remove(thread_ts)
+                _remove_reaction(client, channel, event_ts, "eyes")
+                _add_reaction(client, channel, event_ts, "x")
                 say(
-                    text="申し訳ありません、回答の取得に失敗しました。しばらくしてからお試しください。",
+                    text="予期しないエラーが発生しました。しばらくしてからお試しください。",
                     thread_ts=thread_ts,
                 )
-        except Exception as e:
-            logger.error(f"Unexpected error handling mention: {e}")
-            # On unexpected errors, clear the mapping to avoid trapping the thread with a bad agent.
-            thread_store.remove(thread_ts)
-            _remove_reaction(client, channel, event_ts, "eyes")
-            _add_reaction(client, channel, event_ts, "x")
-            say(
-                text="予期しないエラーが発生しました。しばらくしてからお試しください。",
-                thread_ts=thread_ts,
-            )
 
     threading.Thread(target=_process, daemon=True).start()
 
