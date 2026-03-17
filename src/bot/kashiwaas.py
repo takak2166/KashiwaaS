@@ -237,6 +237,16 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
                     return
 
+                # Prevent sending the same assistant message twice for this thread
+                last_sent_message_id = thread_store.get_last_message_id(thread_ts)
+                if last_sent_message_id and latest_msg.id == last_sent_message_id:
+                    logger.info(
+                        f"Skip sending duplicate assistant message in thread {thread_ts}: {latest_msg.id}"
+                    )
+                    _remove_reaction(client, channel, event_ts, "eyes")
+                    _add_reaction(client, channel, event_ts, "white_check_mark")
+                    return
+
                 chunks = _split_message(latest_msg.text)
                 for chunk in chunks:
                     say(text=chunk, thread_ts=thread_ts)
