@@ -245,7 +245,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     )
                     return
 
-                latest_msg = cursor_client.get_latest_assistant_message_message(result.messages)
+                latest_msg = cursor_client.get_latest_assistant_message_obj(result.messages)
                 if not latest_msg:
                     thread_store.remove(thread_ts)
                     _remove_reaction(client, channel, event_ts, "eyes")
@@ -277,7 +277,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                         if attempt > 0:
                             time.sleep(delay_seconds * (2**(attempt - 1)))
                         refreshed = cursor_client.get_conversation(result.agent_id)
-                        latest = cursor_client.get_latest_assistant_message_message(refreshed)
+                        latest = cursor_client.get_latest_assistant_message_obj(refreshed)
                         if not latest:
                             break
                         latest_msg = latest

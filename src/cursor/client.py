@@ -196,7 +196,7 @@ class CursorClient:
             return self.get_conversation(agent_id)
         for attempt in range(max_retries):
             messages = self.get_conversation(agent_id)
-            latest = self.get_latest_assistant_message_message(messages)
+            latest = self.get_latest_assistant_message_obj(messages)
             if expected_previous_message_id is None or latest is None:
                 return messages
             if latest.id != expected_previous_message_id:
@@ -279,7 +279,7 @@ class CursorClient:
             messages = self.get_conversation(agent_id)
         return AgentResult(agent_id=agent_id, status=status, messages=messages)
 
-    def get_latest_assistant_message_message(
+    def get_latest_assistant_message_obj(
         self, messages: List[AgentMessage]
     ) -> Optional[AgentMessage]:
         """
@@ -301,5 +301,5 @@ class CursorClient:
         Cursor API returns messages in chronological order (oldest first).
         So the last assistant_message in the list is the latest.
         """
-        msg = self.get_latest_assistant_message_message(messages)
+        msg = self.get_latest_assistant_message_obj(messages)
         return msg.text if msg else None

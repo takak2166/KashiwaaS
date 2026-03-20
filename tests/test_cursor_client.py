@@ -336,13 +336,13 @@ class TestCursorClient:
             )
         assert result == messages
 
-    def test_get_latest_assistant_message_message(self, cursor_client):
+    def test_get_latest_assistant_message_obj(self, cursor_client):
         # Chronological order: last assistant is latest
         messages = [
             AgentMessage(id="2", type="assistant_message", text="first"),
             AgentMessage(id="4", type="assistant_message", text="second"),
         ]
-        msg = cursor_client.get_latest_assistant_message_message(messages)
+        msg = cursor_client.get_latest_assistant_message_obj(messages)
         assert msg is not None
         assert msg.id == "4" and msg.text == "second"
 

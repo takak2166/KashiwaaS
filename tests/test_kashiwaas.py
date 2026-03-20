@@ -382,7 +382,7 @@ class TestThreadLocks:
         client = MagicMock()
         cursor_client = MagicMock()
         cursor_client.followup.side_effect = followup_side_effect
-        cursor_client.get_latest_assistant_message_message.side_effect = lambda msgs: msgs[-1] if msgs else None
+        cursor_client.get_latest_assistant_message_obj.side_effect = lambda msgs: msgs[-1] if msgs else None
 
         # thread_store is global; set mapping so both calls use followup path
         from src.bot import kashiwaas as botmod
@@ -443,7 +443,7 @@ class TestThreadLocks:
             status=AgentStatus.FINISHED,
             messages=[],  # no assistant messages
         )
-        cursor_client.get_latest_assistant_message_message.return_value = None
+        cursor_client.get_latest_assistant_message_obj.return_value = None
 
         _handle_mention(ack, event, say, client, cursor_client)
 
@@ -489,7 +489,7 @@ class TestThreadLocks:
             status=AgentStatus.FINISHED,
             messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
         )
-        cursor_client.get_latest_assistant_message_message.side_effect = [
+        cursor_client.get_latest_assistant_message_obj.side_effect = [
             AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
             AgentMessage(id="m_new", type="assistant_message", text="new answer"),
         ]
@@ -542,7 +542,7 @@ class TestThreadLocks:
             status=AgentStatus.FINISHED,
             messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
         )
-        cursor_client.get_latest_assistant_message_message.side_effect = [
+        cursor_client.get_latest_assistant_message_obj.side_effect = [
             AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
             AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
         ]
