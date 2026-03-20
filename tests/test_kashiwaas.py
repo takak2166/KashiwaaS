@@ -178,7 +178,7 @@ class TestHandleMention:
 
         ack.assert_called_once()
         say.assert_called_once()
-        assert "質問を入力してください" in say.call_args[1]["text"]
+        assert "Please enter a question" in say.call_args[1]["text"]
         cursor_client.ask.assert_not_called()
 
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
@@ -553,4 +553,4 @@ class TestThreadLocks:
         _handle_mention(ack, event, say, client, cursor_client)
 
         say.assert_called_once()
-        assert "同じ内容" in say.call_args[1]["text"]
+        assert "same response content" in say.call_args[1]["text"]

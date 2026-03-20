@@ -210,7 +210,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
 
     question = _extract_question(text)
     if not question:
-        say(text="質問を入力してください。例: `@kashiwaas Pythonのasyncの使い方は？`", thread_ts=thread_ts)
+        say(text="Please enter a question. Example: `@kashiwaas How do I use Python async?`", thread_ts=thread_ts)
         return
 
     _add_reaction(client, channel, event_ts, "eyes")
@@ -240,7 +240,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     _remove_reaction(client, channel, event_ts, "eyes")
                     _add_reaction(client, channel, event_ts, "x")
                     say(
-                        text="申し訳ありません、回答の生成中にエラーが発生しました。しばらくしてからお試しください。",
+                        text="Sorry, an error occurred while generating the response. Please try again later.",
                         thread_ts=thread_ts,
                     )
                     return
@@ -250,7 +250,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     thread_store.remove(thread_ts)
                     _remove_reaction(client, channel, event_ts, "eyes")
                     _add_reaction(client, channel, event_ts, "x")
-                    say(text="回答を取得できませんでした。もう一度お試しください。", thread_ts=thread_ts)
+                    say(text="Failed to retrieve a response. Please try again.", thread_ts=thread_ts)
                     return
 
                 last_sent_message_id = thread_store.get_last_message_id(thread_ts)
@@ -289,7 +289,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                         _remove_reaction(client, channel, event_ts, "eyes")
                         _add_reaction(client, channel, event_ts, "x")
                         say(
-                            text="同じ内容の回答が続いているようです。少し待ってからもう一度お試しください。",
+                            text="The same response content keeps repeating. Please wait a moment and try again.",
                             thread_ts=thread_ts,
                         )
                         return
@@ -314,7 +314,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(
-                    text="回答の生成がタイムアウトしました。質問を短くするか、もう一度お試しください。",
+                    text="Response generation timed out. Please shorten your question or try again.",
                     thread_ts=thread_ts,
                 )
             except CursorAPIError as e:
@@ -323,14 +323,17 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 _add_reaction(client, channel, event_ts, "x")
                 if e.status_code in (401, 403):
                     say(
-                        text="Cursor API の認証設定に問題があります。管理者に確認してください。",
+                        text=(
+                            "There is an issue with Cursor API authentication settings. "
+                            "Please contact an administrator."
+                        ),
                         thread_ts=thread_ts,
                     )
                 else:
                     # For non-auth API errors, assume the agent is broken and clear the mapping.
                     thread_store.remove(thread_ts)
                     say(
-                        text="申し訳ありません、回答の取得に失敗しました。しばらくしてからお試しください。",
+                        text="Sorry, failed to retrieve a response. Please try again later.",
                         thread_ts=thread_ts,
                     )
             except Exception as e:
@@ -340,7 +343,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(
-                    text="予期しないエラーが発生しました。しばらくしてからお試しください。",
+                    text="An unexpected error occurred. Please try again later.",
                     thread_ts=thread_ts,
                 )
 
