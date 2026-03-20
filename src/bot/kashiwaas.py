@@ -103,7 +103,7 @@ def create_app() -> App:
         source_ref=os.environ.get("CURSOR_SOURCE_REF", "main"),
         poll_interval=int(os.environ.get("CURSOR_POLL_INTERVAL", "5")),
         poll_timeout=int(os.environ.get("CURSOR_POLL_TIMEOUT", "300")),
-        model=os.environ.get("CURSOR_MODEL", "composer-1.5"),
+        model=os.environ.get("CURSOR_MODEL", "composer-2"),
         conversation_retry_max_retries=int(
             os.environ.get("CURSOR_CONVERSATION_RETRY_MAX_RETRIES", "4")
         ),

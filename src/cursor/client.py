@@ -79,7 +79,7 @@ class CursorClient:
         self.source_ref = source_ref
         self.poll_interval = poll_interval
         self.poll_timeout = poll_timeout
-        # Optional model name for Cloud Agents API (e.g., "composer-1.5")
+        # Optional model name for Cloud Agents API (e.g., "composer-2")
         self.model = model
         self.conversation_retry_max_retries = conversation_retry_max_retries
         self.conversation_retry_delay_seconds = conversation_retry_delay_seconds
@@ -137,7 +137,7 @@ class CursorClient:
                 "autoCreatePr": False,
             },
         }
-        # model: optional. Use "default" or omit for API default; explicit ID (e.g. composer-1.5) otherwise.
+        # model: optional. Use "default" or omit for API default; explicit ID (e.g. composer-2) otherwise.
         # Treat empty, "default", or "Auto" (case-insensitive) as "use API default".
         if self.model:
             normalized = self.model.strip().lower()

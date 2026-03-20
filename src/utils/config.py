@@ -71,7 +71,7 @@ class CursorConfig:
     source_ref: str = "main"
     poll_interval: int = 5
     poll_timeout: int = 300
-    model: Optional[str] = "composer-1.5"
+    model: Optional[str] = "composer-2"
 
 
 @dataclass
@@ -140,7 +140,7 @@ def load_config() -> AppConfig:
     cursor_source_ref = os.getenv("CURSOR_SOURCE_REF", "main")
     cursor_poll_interval = int(os.getenv("CURSOR_POLL_INTERVAL", "5"))
     cursor_poll_timeout = int(os.getenv("CURSOR_POLL_TIMEOUT", "300"))
-    cursor_model = os.getenv("CURSOR_MODEL", "composer-1.5")
+    cursor_model = os.getenv("CURSOR_MODEL", "composer-2")
 
     # Load Bot configuration
     slack_app_token = os.getenv("SLACK_APP_TOKEN")
