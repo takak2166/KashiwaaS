@@ -211,14 +211,6 @@ class CursorClient:
         self._request("POST", f"/v0/agents/{agent_id}/followup", json=payload)
         logger.info(f"Sent followup to agent {agent_id}: {prompt[:80]}...")
 
-    def delete_agent(self, agent_id: str) -> None:
-        """Delete a cloud agent."""
-        try:
-            self._request("DELETE", f"/v0/agents/{agent_id}")
-            logger.info(f"Deleted agent {agent_id}")
-        except CursorAPIError as e:
-            logger.warning(f"Failed to delete agent {agent_id}: {e}")
-
     def poll_until_complete(self, agent_id: str) -> AgentStatus:
         """
         Poll the agent status until it reaches a terminal state or times out.

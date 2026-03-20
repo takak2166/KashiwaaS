@@ -192,31 +192,6 @@ class TestCursorClient:
         assert call_kwargs[1]["json"]["prompt"]["text"] == "Tell me more"
 
     @patch("src.cursor.client.requests.request")
-    def test_delete_agent(self, mock_request, cursor_client):
-        mock_response = MagicMock()
-        mock_response.ok = True
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "bc_abc123"}'
-        mock_response.json.return_value = {"id": "bc_abc123"}
-        mock_request.return_value = mock_response
-
-        cursor_client.delete_agent("bc_abc123")
-
-        call_kwargs = mock_request.call_args
-        assert call_kwargs[0][0] == "DELETE"
-        assert "/v0/agents/bc_abc123" in call_kwargs[0][1]
-
-    @patch("src.cursor.client.requests.request")
-    def test_delete_agent_handles_error(self, mock_request, cursor_client):
-        mock_response = MagicMock()
-        mock_response.ok = False
-        mock_response.status_code = 404
-        mock_response.text = "Not Found"
-        mock_request.return_value = mock_response
-
-        cursor_client.delete_agent("bc_nonexistent")
-
-    @patch("src.cursor.client.requests.request")
     def test_api_error_429(self, mock_request, cursor_client):
         mock_response = MagicMock()
         mock_response.status_code = 429
