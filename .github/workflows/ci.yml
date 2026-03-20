@@ -27,9 +27,40 @@ jobs:
 
       - name: Run linting
         run: poetry run make lint
+        env:
+          # Minimal env so load_config() does not get None for required fields when tests import app modules
+          SLACK_API_TOKEN: ""
+          SLACK_CHANNEL_ID: ""
+          SLACK_CHANNEL_NAME: ""
+          ELASTICSEARCH_HOST: ""
+          KIBANA_HOST: ""
+          SELENIUM_HOST: ""
 
       - name: Run tests
         run: poetry run make test
+        env:
+          SLACK_API_TOKEN: ""
+          SLACK_CHANNEL_ID: ""
+          SLACK_CHANNEL_NAME: ""
+          ELASTICSEARCH_HOST: ""
+          KIBANA_HOST: ""
+          SELENIUM_HOST: ""
+
+      - name: Bot startup smoke check
+        run: |
+          poetry run python - <<'PY'
+          from unittest.mock import patch
+          from src.bot import kashiwaas
+
+          with patch.object(kashiwaas, "App") as mock_app:
+              app = kashiwaas.create_app()
+              assert app is not None
+              assert mock_app.called
+          PY
+        env:
+          SLACK_BOT_TOKEN: "xoxb-dummy"
+          CURSOR_API_KEY: "dummy"
+          CURSOR_SOURCE_REPOSITORY: "https://github.com/takak2166/KashiwaaS"
 
   dry-run:
     runs-on: ubuntu-latest

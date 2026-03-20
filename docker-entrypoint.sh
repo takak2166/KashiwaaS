@@ -1,15 +1,15 @@
 #!/bin/bash
 set -e
 
-# Setup Elasticsearch indices if Elasticsearch is available
-echo "Waiting for Elasticsearch to be ready..."
-until curl -s http://elasticsearch:9200 > /dev/null; do
-    echo "Elasticsearch is unavailable - sleeping"
-    sleep 5
-done
-
 # Start cron service if requested
 if [ "$1" = "cron" ]; then
+    # Setup Elasticsearch indices if Elasticsearch is available
+    echo "Waiting for Elasticsearch to be ready..."
+    until curl -s http://elasticsearch:9200 > /dev/null; do
+        echo "Elasticsearch is unavailable - sleeping"
+        sleep 5
+    done
+
     echo "Starting cron service"
     service cron start
     

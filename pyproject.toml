@@ -26,6 +26,7 @@ dependencies = [
     "pandas (>=2.1.0,<3.0.0)",
     "plotly (>=5.18.0,<6.0.0)",
     "kaleido (==0.2.1)",
+    "slack-bolt (>=1.21.0,<2.0.0)",
 ]
 
 

@@ -37,5 +37,14 @@ services:
       - SE_NODE_MAX_SESSIONS=4
     shm_size: '2g'
 
+  bot:
+    build: .
+    command: ["poetry", "run", "python", "-m", "src.bot.kashiwaas"]
+    environment:
+      - TZ=Asia/Tokyo
+    env_file:
+      - .env
+    restart: unless-stopped
+
 volumes:
   es_data:
