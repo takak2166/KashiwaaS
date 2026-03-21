@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+from src.bot.slack_mrkdwn import markdown_to_slack_mrkdwn
 from src.bot.thread_store import ThreadStore
 from src.cursor.client import (
     AgentStatus,
@@ -301,9 +302,9 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 thread_store.set_last_message_id(thread_ts, latest_msg.id)
                 thread_store.set_last_message_fingerprint(thread_ts, current_fingerprint)
 
-                chunks = _split_message(latest_msg.text)
+                chunks = _split_message(markdown_to_slack_mrkdwn(latest_msg.text))
                 for chunk in chunks:
-                    say(text=chunk, thread_ts=thread_ts)
+                    say(text=chunk, thread_ts=thread_ts, mrkdwn=True)
 
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "white_check_mark")
