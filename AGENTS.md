@@ -5,7 +5,7 @@
 ## Core Principles
 
 - **Do NOT maintain backward compatibility or fallback** unless explicitly requested. Break things boldly.
-- **Keep this file under 20-30 lines of instructions.** Every line competes for the agent's limited context budget (~150-200 total).
+- **Line budget:** Non-blank, non-HTML-comment lines = **instruction body** (target **30–50**). **Whole file** ≤**75** lines (includes blanks, fences, HTML notes). Offload depth to `docs/`.
 
 ---
 
@@ -64,7 +64,7 @@ scripts/             Index setup, Kibana import, etc.
 
 1. **Remove placeholder sections** (sections still containing `[To be determined]` or `[Add your ... here]`) once you fill them in
 2. **Review regularly** - stale instructions poison the agent's context
-3. **CRITICAL: Keep total under 20-30 lines** - move detailed docs to separate files and reference them
+3. **CRITICAL: Respect the line budget** (see Core Principles) — move detailed docs to separate files and reference them
 4. **Update commands immediately** when workflows change
 5. **Rewrite Architecture section** when major architectural changes occur
 6. **Delete anything the agent can infer** from your code
