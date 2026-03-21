@@ -6,7 +6,13 @@ import time
 import threading
 from unittest.mock import MagicMock, patch
 
-from src.bot.kashiwaas import _extract_question, _split_message
+from src.bot.kashiwaas import (
+    SLACK_MARKDOWN_BLOCK_TEXT_MAX,
+    _extract_question,
+    _fallback_notification_text,
+    _say_markdown_chunks,
+    _split_message,
+)
 from src.bot.thread_store import ThreadStore
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus
 
@@ -96,6 +102,35 @@ class TestSplitMessage:
         assert len(result) == 2
         assert result[0] == "word1"
         assert result[1] == "word2"
+
+    def test_split_uses_custom_max_length(self):
+        text = "a" * 100
+        result = _split_message(text, max_length=SLACK_MARKDOWN_BLOCK_TEXT_MAX)
+        assert result == [text]
+
+
+class TestMarkdownBlockHelpers:
+    """Block Kit markdown block posting helpers."""
+
+    def test_fallback_notification_text_truncates(self):
+        long = "x" * 5000
+        out = _fallback_notification_text(long)
+        assert len(out) == 4000
+        assert out.endswith("…")
+
+    def test_say_markdown_chunks_posts_markdown_blocks(self):
+        say = MagicMock()
+        _say_markdown_chunks(say, ["# Hi\n\n**bold**"], "1.0")
+        say.assert_called_once()
+        kwargs = say.call_args[1]
+        assert kwargs["thread_ts"] == "1.0"
+        assert kwargs["blocks"] == [{"type": "markdown", "text": "# Hi\n\n**bold**"}]
+        assert "text" in kwargs
+
+    def test_say_markdown_chunks_multiple_messages(self):
+        say = MagicMock()
+        _say_markdown_chunks(say, ["part1", "part2"], "2.0")
+        assert say.call_count == 2
 
 
 class TestThreadStore:

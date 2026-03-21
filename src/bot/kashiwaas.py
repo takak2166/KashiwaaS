@@ -32,6 +32,9 @@ if dotenv_path.exists():
 logger = get_logger(__name__)
 
 SLACK_MESSAGE_MAX_LENGTH = 4000
+# Block Kit markdown block: standard Markdown in `text` (Slack converts for display).
+# https://docs.slack.dev/reference/block-kit/blocks/markdown-block/
+SLACK_MARKDOWN_BLOCK_TEXT_MAX = 12000
 MENTION_PATTERN = re.compile(r"<@[\w]+>")
 # Deduplicate by (channel, event_ts): skip processing if we already handled this event (e.g. Slack retry).
 PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
@@ -161,6 +164,23 @@ def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> lis
         text = rest
 
     return chunks
+
+
+def _fallback_notification_text(text: str, max_len: int = SLACK_MESSAGE_MAX_LENGTH) -> str:
+    """Plain `text` for chat.postMessage (notifications, search); keep under Slack limits."""
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1] + "…"
+
+
+def _say_markdown_chunks(say, chunks: list[str], thread_ts: str) -> None:
+    """Post assistant content using Block Kit `markdown` blocks (Slack renders GFM-style Markdown)."""
+    for chunk in chunks:
+        say(
+            text=_fallback_notification_text(chunk),
+            blocks=[{"type": "markdown", "text": chunk}],
+            thread_ts=thread_ts,
+        )
 
 
 def _add_reaction(client, channel: str, timestamp: str, name: str) -> None:
@@ -301,9 +321,8 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 thread_store.set_last_message_id(thread_ts, latest_msg.id)
                 thread_store.set_last_message_fingerprint(thread_ts, current_fingerprint)
 
-                chunks = _split_message(latest_msg.text)
-                for chunk in chunks:
-                    say(text=chunk, thread_ts=thread_ts)
+                chunks = _split_message(latest_msg.text, max_length=SLACK_MARKDOWN_BLOCK_TEXT_MAX)
+                _say_markdown_chunks(say, chunks, thread_ts)
 
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "white_check_mark")
