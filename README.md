@@ -16,7 +16,7 @@ This system collects messages from a specific Slack channel, stores them in Elas
 
 ## Installation
 ### Prerequisites
-- Python 3.10 or higher
+- Python 3.12 or higher
 - Poetry 2.1.0 or higher
 - Docker and Docker Compose
 
@@ -75,6 +75,8 @@ docker-compose exec app poetry run python src/main.py fetch --days DAYS
 - `ELASTICSEARCH_HOST`: Elasticsearch host
 - `ELASTICSEARCH_USER`: Elasticsearch username
 - `ELASTICSEARCH_PASSWORD`: Elasticsearch password
+
+Other variables (Kibana, Selenium/Chrome, logging, alerts, bot/Cursor) are listed in `.env.example`.
 
 ### Elasticsearch Indices
 To set up Elasticsearch indices, run the following command:
@@ -155,7 +157,7 @@ poetry run python -m src.bot.kashiwaas
 
 ## インストール
 ### 前提条件
-- Python 3.10以上
+- Python 3.12以上
 - Poetry 2.1.0以上
 - DockerとDocker Compose
 
@@ -214,6 +216,8 @@ docker-compose exec app poetry run python src/main.py fetch --days DAYS
 - `ELASTICSEARCH_HOST`: Elasticsearchのホスト
 - `ELASTICSEARCH_USER`: Elasticsearchのユーザー名
 - `ELASTICSEARCH_PASSWORD`: Elasticsearchのパスワード
+
+Kibana、Selenium/Chrome、ログ、アラート、Bot/Cursor 用など、その他の変数は `.env.example` に記載しています。
 
 ### Elasticsearchインデックス
 Elasticsearchインデックスを設定するには、以下のコマンドを実行します：
