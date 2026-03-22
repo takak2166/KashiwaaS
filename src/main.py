@@ -11,6 +11,7 @@ from typing import List, Optional
 from src.bot.alerter import AlertLevel, alert
 from src.bot.reporter import generate_daily_report, generate_weekly_report
 from src.es_client.client import ElasticsearchClient
+from src.kibana.capture import KibanaCapture
 from src.slack.client import SlackClient
 from src.slack.message import SlackMessage
 from src.utils.config import config
@@ -62,6 +63,8 @@ def parse_args():
 
 
 def fetch_messages(
+    slack_client: Optional[SlackClient],
+    es_client: Optional[ElasticsearchClient],
     days: int = 1,
     channel_id: Optional[str] = None,
     end_date: Optional[datetime] = None,
@@ -75,6 +78,8 @@ def fetch_messages(
     Fetch Slack messages for the specified period and process them
 
     Args:
+        slack_client: Slack client (required when not use_dummy)
+        es_client: Elasticsearch client (required when store_messages)
         days: Number of days to fetch
         channel_id: Channel ID to fetch from
         end_date: End date for fetching
@@ -123,7 +128,9 @@ def fetch_messages(
         ]
         messages = [SlackMessage.from_slack_data("dummy-channel", msg) for msg in dummy_messages]
     else:
-        client = SlackClient(channel_id=channel_id)
+        if slack_client is None:
+            raise ValueError("slack_client is required when use_dummy is False")
+        client = slack_client
         # Get channel information
         try:
             channel_info = client.get_channel_info()
@@ -164,7 +171,9 @@ def fetch_messages(
 
     # Process messages
     if store_messages:
-        process_messages(messages, channel_name, batch_size)
+        if es_client is None:
+            raise ValueError("es_client is required when store_messages is True")
+        process_messages(es_client, messages, channel_name, batch_size)
     else:
         # Just log the messages
         for message in messages:
@@ -216,36 +225,19 @@ def log_message(message: SlackMessage) -> None:
     )
 
 
-def process_messages(messages: List[SlackMessage], channel_name: str, batch_size: int = 500) -> None:
+def process_messages(
+    es_client: ElasticsearchClient, messages: List[SlackMessage], channel_name: str, batch_size: int = 500
+) -> None:
     """
     Process messages and store them in Elasticsearch
 
     Args:
+        es_client: Elasticsearch client (caller constructs)
         messages: List of SlackMessage objects
         channel_name: Channel name
         batch_size: Batch size for Elasticsearch bulk indexing
     """
-    # Initialize Elasticsearch client
-    try:
-        es_client = ElasticsearchClient()
-        logger.info("Connected to Elasticsearch")
-    except Exception as e:
-        error_msg = f"Failed to connect to Elasticsearch: {e}"
-        logger.error(error_msg)
-        logger.warning("Messages will not be stored in Elasticsearch")
-
-        # Send alert
-        alert(
-            message=error_msg,
-            level=AlertLevel.ERROR,
-            title="Elasticsearch Connection Error",
-            details={
-                "host": config.elasticsearch.host if config else "unknown",
-                "error": str(e),
-                "message_count": len(messages),
-            },
-        )
-        return
+    logger.info("Using injected Elasticsearch client")
 
     # Process messages in batches
     messages_buffer: List[SlackMessage] = []
@@ -333,8 +325,33 @@ def main():
                 logger.error(f"Invalid date format: {args.end_date}. Use YYYY-MM-DD format.")
                 sys.exit(1)
 
+        slack_client: Optional[SlackClient] = None
+        if not args.dummy:
+            slack_client = SlackClient(channel_id=args.channel)
+
+        es_client: Optional[ElasticsearchClient] = None
+        if not args.no_store:
+            try:
+                es_client = ElasticsearchClient()
+                logger.info("Connected to Elasticsearch")
+            except Exception as e:
+                error_msg = f"Failed to connect to Elasticsearch: {e}"
+                logger.error(error_msg)
+                alert(
+                    message=error_msg,
+                    level=AlertLevel.ERROR,
+                    title="Elasticsearch Connection Error",
+                    details={
+                        "host": config.elasticsearch.host if config else "unknown",
+                        "error": str(e),
+                    },
+                )
+                sys.exit(1)
+
         # Execute message fetching
         fetch_messages(
+            slack_client,
+            es_client,
             days=args.days,
             channel_id=args.channel,
             end_date=end_date,
@@ -355,9 +372,25 @@ def main():
                 logger.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD format.")
                 sys.exit(1)
 
+        try:
+            es_client = ElasticsearchClient()
+        except Exception as e:
+            logger.error(f"Failed to connect to Elasticsearch: {e}")
+            sys.exit(1)
+
+        slack_client: Optional[SlackClient] = None
+        if not args.dry_run:
+            slack_client = SlackClient(channel_id=args.channel)
+
+        kibana_capture: Optional[KibanaCapture] = None
+        if args.type == "weekly" and not args.dry_run:
+            kibana_capture = KibanaCapture()
+
         # Generate report
         if args.type == "daily":
             generate_daily_report(
+                es_client,
+                slack_client,
                 channel_id=args.channel,
                 channel_name=args.channel,
                 target_date=target_date,
@@ -365,7 +398,13 @@ def main():
             )
         elif args.type == "weekly":
             generate_weekly_report(
-                channel_id=args.channel, channel_name=args.channel, end_date=target_date, dry_run=args.dry_run
+                es_client,
+                slack_client,
+                kibana_capture,
+                channel_id=args.channel,
+                channel_name=args.channel,
+                end_date=target_date,
+                dry_run=args.dry_run,
             )
         else:
             logger.error(f"Unknown report type: {args.type}")

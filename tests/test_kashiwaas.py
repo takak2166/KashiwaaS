@@ -2,8 +2,8 @@
 Tests for KashiwaaS bot handler and utilities
 """
 
-import time
 import threading
+import time
 from unittest.mock import MagicMock, patch
 
 from src.bot.kashiwaas import (
@@ -440,9 +440,7 @@ class TestThreadLocks:
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")
     @patch("src.bot.kashiwaas.threading.Thread")
-    def test_no_assistant_message_clears_thread_mapping(
-        self, mock_thread_class, mock_store, _mock_dup
-    ):
+    def test_no_assistant_message_clears_thread_mapping(self, mock_thread_class, mock_store, _mock_dup):
         """When no assistant message is returned, clear mapping so thread can recover."""
         from src.bot.kashiwaas import _handle_mention
 
@@ -487,9 +485,7 @@ class TestThreadLocks:
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")
     @patch("src.bot.kashiwaas.threading.Thread")
-    def test_duplicate_assistant_message_not_sent_twice(
-        self, mock_thread_class, mock_store, _mock_dup
-    ):
+    def test_duplicate_assistant_message_not_sent_twice(self, mock_thread_class, mock_store, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
         def run_target_immediately(*args, **kwargs):

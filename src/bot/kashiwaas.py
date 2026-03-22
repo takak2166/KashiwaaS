@@ -3,13 +3,13 @@ KashiwaaS Bot Module
 Slack Socket Mode application that answers questions via Cursor Cloud Agents API.
 """
 
+import hashlib
 import os
 import re
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-import hashlib
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -107,12 +107,8 @@ def create_app() -> App:
         poll_interval=int(os.environ.get("CURSOR_POLL_INTERVAL", "5")),
         poll_timeout=int(os.environ.get("CURSOR_POLL_TIMEOUT", "300")),
         model=os.environ.get("CURSOR_MODEL", "composer-2"),
-        conversation_retry_max_retries=int(
-            os.environ.get("CURSOR_CONVERSATION_RETRY_MAX_RETRIES", "4")
-        ),
-        conversation_retry_delay_seconds=float(
-            os.environ.get("CURSOR_CONVERSATION_RETRY_DELAY_SECONDS", "1.5")
-        ),
+        conversation_retry_max_retries=int(os.environ.get("CURSOR_CONVERSATION_RETRY_MAX_RETRIES", "4")),
+        conversation_retry_delay_seconds=float(os.environ.get("CURSOR_CONVERSATION_RETRY_DELAY_SECONDS", "1.5")),
     )
 
     @app.event("app_mention")
@@ -248,9 +244,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     )
                 else:
                     logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
-                    result = cursor_client.ask(
-                        question, expected_previous_message_id=expected_previous_message_id
-                    )
+                    result = cursor_client.ask(question, expected_previous_message_id=expected_previous_message_id)
                     if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
                         thread_store.set(thread_ts, result.agent_id)
 
@@ -278,9 +272,8 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 current_fingerprint = _fingerprint_text(latest_msg.text)
 
                 def _is_duplicate() -> bool:
-                    return (
-                        (last_sent_message_id and latest_msg.id == last_sent_message_id)
-                        or (last_sent_fingerprint and current_fingerprint == last_sent_fingerprint)
+                    return (last_sent_message_id and latest_msg.id == last_sent_message_id) or (
+                        last_sent_fingerprint and current_fingerprint == last_sent_fingerprint
                     )
 
                 if _is_duplicate():
@@ -295,7 +288,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                             )
                         )
                         if attempt > 0:
-                            time.sleep(delay_seconds * (2**(attempt - 1)))
+                            time.sleep(delay_seconds * (2 ** (attempt - 1)))
                         refreshed = cursor_client.get_conversation(result.agent_id)
                         latest = cursor_client.get_latest_assistant_message_obj(refreshed)
                         if not latest:

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.es_client.slack_doc import slack_message_to_doc
 from src.slack.client import SlackClient
 from src.slack.message import SlackMessage, SlackReaction
 
@@ -55,9 +56,8 @@ class TestSlackMessage:
         assert message.attachments[0].type == "png"
         assert message.attachments[0].size == 12345
 
-    def test_to_elasticsearch_doc(self):
-        """Test for to_elasticsearch_doc method"""
-        # Test SlackMessage object
+    def test_slack_message_to_doc(self):
+        """Elasticsearch _source mapping lives in es_client.slack_doc."""
         message = SlackMessage(
             channel_id="C12345678",
             ts="1609459200.000000",
@@ -75,8 +75,7 @@ class TestSlackMessage:
             attachments=[],
         )
 
-        # Convert to Elasticsearch document
-        doc = message.to_elasticsearch_doc()
+        doc = slack_message_to_doc(message)
 
         # Verify conversion result
         assert doc["channel_id"] == "C12345678"

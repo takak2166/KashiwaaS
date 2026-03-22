@@ -6,4 +6,5 @@ poetry.lock
 reports
 .github/secrets
 .cursor/plans
+.cursor/*.log
 .cursorignore

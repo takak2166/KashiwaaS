@@ -4,17 +4,17 @@ Provides functions for date and time conversion and manipulation
 """
 
 import datetime
+import os
 from typing import Optional, Tuple, Union
 
 import pytz
 
-from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Timezone configuration
-DEFAULT_TIMEZONE = pytz.timezone(config.timezone if config else "Asia/Tokyo")
+# Timezone: use TIMEZONE env if set (same as AppConfig), avoid importing config at module load
+DEFAULT_TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Tokyo"))
 
 
 def get_current_time(timezone: Optional[pytz.timezone] = None) -> datetime.datetime:
@@ -86,43 +86,40 @@ def get_date_range(days: int, end_date: Optional[datetime.datetime] = None) -> T
     return convert_to_timestamp(start), convert_to_timestamp(end)
 
 
-def is_weekend(dt: Optional[datetime.datetime] = None) -> bool:
+def is_weekend(dt: datetime.datetime) -> bool:
     """
     Determine if the specified date is a weekend (Saturday or Sunday)
 
     Args:
-        dt: Datetime object (current time if not specified)
+        dt: Datetime object
 
     Returns:
         bool: True if weekend
     """
-    dt = dt or get_current_time()
     return dt.weekday() >= 5  # 5=Saturday, 6=Sunday
 
 
-def get_day_of_week(dt: Optional[datetime.datetime] = None) -> int:
+def get_day_of_week(dt: datetime.datetime) -> int:
     """
     Get day of week as a number (0=Monday, 6=Sunday)
 
     Args:
-        dt: Datetime object (current time if not specified)
+        dt: Datetime object
 
     Returns:
         int: Day of week (0-6)
     """
-    dt = dt or get_current_time()
     return dt.weekday()
 
 
-def get_hour_of_day(dt: Optional[datetime.datetime] = None) -> int:
+def get_hour_of_day(dt: datetime.datetime) -> int:
     """
     Get hour of day (0-23)
 
     Args:
-        dt: Datetime object (current time if not specified)
+        dt: Datetime object
 
     Returns:
         int: Hour of day (0-23)
     """
-    dt = dt or get_current_time()
     return dt.hour

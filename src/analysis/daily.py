@@ -3,37 +3,36 @@ Provides functionality for generating daily reports.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.es_client.client import ElasticsearchClient
+from src.es_client.index import get_index_name
+from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def get_daily_stats(
-    channel_name: str, date: datetime, es_client: Optional[ElasticsearchClient] = None
-) -> Dict[str, Any]:
+def get_daily_stats(channel_name: str, date: datetime, es_client: ElasticsearchClient) -> Dict[str, Any]:
     """
     Get daily statistics for a specific channel and date.
 
     Args:
         channel_name: Channel name
         date: Date to get stats for
-        es_client: Elasticsearch client (optional)
+        es_client: Elasticsearch client (caller must construct)
 
     Returns:
         Dict[str, Any]: Daily statistics
     """
-    # Initialize Elasticsearch client if not provided
-    if es_client is None:
-        es_client = ElasticsearchClient()
+    if not channel_name and config:
+        channel_name = config.slack.channel_name
 
     # Format date for Elasticsearch
     date_str = date.strftime("%Y-%m-%d")
 
-    # Get index name
-    index_name = f"slack-{channel_name}"
+    # Get index name (same normalization as scripts/setup_indices.py and index_slack_messages)
+    index_name = get_index_name(channel_name)
 
     # Get total messages and reactions
     message_count = es_client.search(

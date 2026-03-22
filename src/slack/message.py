@@ -132,26 +132,3 @@ class SlackMessage:
             attachments=attachments,
             raw_data=message_data,
         )
-
-    def to_elasticsearch_doc(self) -> Dict[str, Any]:
-        """
-        Convert data to JSON format as an Elasticsearch document
-
-        Returns:
-            Dict[str, Any]: Document that can be stored in Elasticsearch
-        """
-        return {
-            "timestamp": self.timestamp.isoformat(),
-            "channel_id": self.channel_id,
-            "user_id": self.user_id,
-            "username": self.username,
-            "text": self.text,
-            "thread_ts": self.thread_ts,
-            "reply_count": self.reply_count,
-            "reactions": [{"name": r.name, "count": r.count, "users": r.users} for r in self.reactions],
-            "mentions": self.mentions,
-            "attachments": [{"type": a.type, "size": a.size, "url": a.url} for a in self.attachments],
-            "is_weekend": self.is_weekend,
-            "hour_of_day": self.hour_of_day,
-            "day_of_week": self.day_of_week,
-        }

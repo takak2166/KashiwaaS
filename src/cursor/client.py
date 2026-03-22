@@ -93,9 +93,7 @@ class CursorClient:
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         url = f"{BASE_URL}{path}"
         timeout = kwargs.pop("timeout", 60)
-        response = requests.request(
-            method, url, headers=self.headers, timeout=timeout, **kwargs
-        )
+        response = requests.request(method, url, headers=self.headers, timeout=timeout, **kwargs)
 
         if response.status_code == 429:
             raise CursorAPIError(429, "Rate limit exceeded")
@@ -271,9 +269,7 @@ class CursorClient:
             messages = self.get_conversation(agent_id)
         return AgentResult(agent_id=agent_id, status=status, messages=messages)
 
-    def get_latest_assistant_message_obj(
-        self, messages: List[AgentMessage]
-    ) -> Optional[AgentMessage]:
+    def get_latest_assistant_message_obj(self, messages: List[AgentMessage]) -> Optional[AgentMessage]:
         """
         Return the most recent assistant message (full message with id and text).
 

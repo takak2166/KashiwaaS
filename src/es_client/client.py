@@ -14,6 +14,8 @@ from elasticsearch.exceptions import (
 
 from elasticsearch import Elasticsearch, helpers
 from src.bot.alerter import AlertLevel, alert
+from src.es_client.index import get_index_name
+from src.es_client.slack_doc import slack_message_to_doc
 from src.slack.message import SlackMessage
 from src.utils.config import config
 from src.utils.logger import get_logger
@@ -310,11 +312,11 @@ class ElasticsearchClient:
         Returns:
             Dict[str, int]: Statistics about the indexing operation
         """
-        # Format index name
-        index_name = f"slack-{channel_name.lower()}"
+        # Format index name (same as setup_indices / get_daily_stats)
+        index_name = get_index_name(channel_name)
 
         # Convert messages to Elasticsearch documents
-        documents = [message.to_elasticsearch_doc() for message in messages]
+        documents = [slack_message_to_doc(message) for message in messages]
 
         # Process in batches
         total_success = 0
