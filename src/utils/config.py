@@ -190,8 +190,14 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     )
 
 
-def validate_cli_config(cfg: AppConfig) -> None:
-    """Raise ConfigError if CLI (fetch/report) cannot run with this config."""
+def validate_cli_config(cfg: AppConfig, *, require_slack_credentials: bool = True) -> None:
+    """
+    Raise ConfigError if CLI (fetch/report) cannot run with this config.
+
+    ``fetch --dummy`` does not call the Slack API; pass ``require_slack_credentials=False``.
+    """
+    if not require_slack_credentials:
+        return
     if not cfg.slack.api_token:
         raise ConfigError("SLACK_API_TOKEN is required for CLI commands")
     if not cfg.slack.channel_id:

@@ -20,14 +20,16 @@ def main() -> None:
     apply_dotenv()
     try:
         cfg = load_config()
-        validate_cli_config(cfg)
+        args = parse_args()
+        if args.command == "fetch" and getattr(args, "dummy", False):
+            validate_cli_config(cfg, require_slack_credentials=False)
+        elif args.command in ("fetch", "report"):
+            validate_cli_config(cfg)
     except ConfigError as e:
         logger.error("%s", e)
         sys.exit(1)
 
     init_alerter(cfg)
-
-    args = parse_args()
 
     if args.command == "fetch":
         run_fetch_command(args, cfg)
