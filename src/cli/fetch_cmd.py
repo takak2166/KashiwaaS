@@ -115,23 +115,13 @@ def fetch_messages(
             )
             return
 
-        try:
-            messages_iter = _fetch_slack_messages(client, start_date, end_date, include_threads)
-        except Exception as e:
-            error_msg = f"Error during message fetching: {e}"
-            logger.error(error_msg)
-            alert(
-                message=error_msg,
-                level=AlertLevel.ERROR,
-                title="Message Fetch Error",
-                details={
-                    "channel": channel_name,
-                    "start_date": start_date.isoformat() if start_date else "None",
-                    "end_date": end_date.isoformat() if end_date else "None",
-                    "error": str(e),
-                },
-            )
-            raise
+        # _fetch_slack_messages is lazy; wrap so Slack API errors during iteration still alert.
+        messages_iter = _slack_fetch_iter_with_alert(
+            _fetch_slack_messages(client, start_date, end_date, include_threads),
+            channel_name=channel_name,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     if store_messages:
         if es_client is None:
@@ -155,6 +145,33 @@ def _fetch_slack_messages(
         if message_count % 100 == 0:
             logger.info(f"Fetched {message_count} messages so far")
         yield message
+
+
+def _slack_fetch_iter_with_alert(
+    inner: Iterator[SlackMessage],
+    *,
+    channel_name: str,
+    start_date: Optional[datetime],
+    end_date: datetime,
+) -> Iterator[SlackMessage]:
+    """Yield from Slack fetch iterator; alert when errors occur during lazy iteration."""
+    try:
+        yield from inner
+    except Exception as e:
+        error_msg = f"Error during message fetching: {e}"
+        logger.error(error_msg)
+        alert(
+            message=error_msg,
+            level=AlertLevel.ERROR,
+            title="Message Fetch Error",
+            details={
+                "channel": channel_name,
+                "start_date": start_date.isoformat() if start_date else "None",
+                "end_date": end_date.isoformat() if end_date else "None",
+                "error": str(e),
+            },
+        )
+        raise
 
 
 def log_message(message: SlackMessage) -> None:
