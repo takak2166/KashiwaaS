@@ -306,9 +306,7 @@ class TestCursorClient:
             AgentMessage(id="2", type="assistant_message", text="a"),
         ]
         with patch.object(cursor_client, "get_conversation", return_value=messages):
-            result = cursor_client.get_conversation_after_complete(
-                "agent_1", max_retries=0
-            )
+            result = cursor_client.get_conversation_after_complete("agent_1", max_retries=0)
         assert result == messages
 
     def test_get_latest_assistant_message_obj(self, cursor_client):

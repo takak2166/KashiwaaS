@@ -2,117 +2,54 @@
 Provides functionality for generating daily reports.
 """
 
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Optional
 
+from src.analysis.daily_pipeline import (
+    build_daily_hourly_histogram_query,
+    build_daily_message_count_query,
+    build_daily_reaction_sum_query,
+    build_daily_stats,
+    day_bounds_strings,
+    parse_hourly_buckets_to_counts,
+    parse_reaction_sum_value,
+    parse_search_total_hits,
+)
+from src.analysis.types import DailyStats
 from src.es_client.client import ElasticsearchClient
-from src.utils.logger import get_logger
-
-logger = get_logger(__name__)
+from src.es_client.index import get_index_name
 
 
 def get_daily_stats(
-    channel_name: str, date: datetime, es_client: Optional[ElasticsearchClient] = None
-) -> Dict[str, Any]:
+    channel_name: str,
+    date: datetime,
+    es_client: ElasticsearchClient,
+    *,
+    fallback_channel_name: Optional[str] = None,
+) -> DailyStats:
     """
-    Get daily statistics for a specific channel and date.
+    Get daily statistics for a specific channel and date (ES I/O orchestration).
 
     Args:
         channel_name: Channel name
         date: Date to get stats for
-        es_client: Elasticsearch client (optional)
+        es_client: Elasticsearch client (caller must construct)
 
     Returns:
-        Dict[str, Any]: Daily statistics
+        Daily statistics
     """
-    # Initialize Elasticsearch client if not provided
-    if es_client is None:
-        es_client = ElasticsearchClient()
+    if not channel_name and fallback_channel_name:
+        channel_name = fallback_channel_name
 
-    # Format date for Elasticsearch
-    date_str = date.strftime("%Y-%m-%d")
+    date_str, _ = day_bounds_strings(date)
+    index_name = get_index_name(channel_name)
 
-    # Get index name
-    index_name = f"slack-{channel_name}"
+    msg_resp = es_client.search(index_name, build_daily_message_count_query(date))
+    reaction_resp = es_client.search(index_name, build_daily_reaction_sum_query(date))
+    hourly_resp = es_client.search(index_name, build_daily_hourly_histogram_query(date))
 
-    # Get total messages and reactions
-    message_count = es_client.search(
-        index_name,
-        {
-            "size": 0,
-            "query": {
-                "range": {
-                    "timestamp": {
-                        "gte": date_str,
-                        "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "time_zone": "+09:00",
-                    }
-                }
-            },
-        },
-    )["hits"]["total"]["value"]
+    message_count = parse_search_total_hits(msg_resp)
+    reaction_count = parse_reaction_sum_value(reaction_resp)
+    hourly_counts = parse_hourly_buckets_to_counts(hourly_resp)
 
-    reaction_count = es_client.search(
-        index_name,
-        {
-            "size": 0,
-            "query": {
-                "range": {
-                    "timestamp": {
-                        "gte": date_str,
-                        "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "time_zone": "+09:00",
-                    }
-                }
-            },
-            "aggs": {
-                "reactions_nested": {
-                    "nested": {"path": "reactions"},
-                    "aggs": {"total_count": {"sum": {"field": "reactions.count"}}},
-                }
-            },
-        },
-    )["aggregations"]["reactions_nested"]["total_count"]["value"]
-
-    # Get hourly message counts
-    result = es_client.search(
-        index_name,
-        {
-            "size": 0,
-            "query": {
-                "range": {
-                    "timestamp": {
-                        "gte": date_str,
-                        "lt": (date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "time_zone": "+09:00",
-                    }
-                }
-            },
-            "aggs": {
-                "hourly": {
-                    "date_histogram": {
-                        "field": "timestamp",
-                        "calendar_interval": "hour",
-                        "format": "yyyy-MM-dd HH:mm:ss",
-                        "time_zone": "Asia/Tokyo",
-                    }
-                }
-            },
-        },
-    )
-
-    # Initialize hourly counts
-    hourly_counts = [0] * 24
-
-    # Fill in the counts from the aggregation
-    for bucket in result.get("aggregations", {}).get("hourly", {}).get("buckets", []):
-        hour = int(bucket.get("key_as_string", "").split(" ")[1].split(":")[0])
-        count = bucket.get("doc_count", 0)
-        hourly_counts[hour] = count
-
-    return {
-        "date": date_str,
-        "message_count": message_count,
-        "reaction_count": int(reaction_count),
-        "hourly_message_counts": hourly_counts,
-    }
+    return build_daily_stats(date_str, message_count, reaction_count, hourly_counts)

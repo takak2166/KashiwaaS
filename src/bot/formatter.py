@@ -2,14 +2,15 @@
 Provides functionality for formatting messages.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+from src.analysis.types import DailyStats, WeeklyStats
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def format_daily_report(stats: Dict[str, Any]) -> str:
+def format_daily_report(stats: DailyStats) -> str:
     """
     Format daily report message
 
@@ -19,51 +20,30 @@ def format_daily_report(stats: Dict[str, Any]) -> str:
     Returns:
         str: Formatted message
     """
-    # Format message
-    message = f"Daily Report for {stats['date']}\n\n"
-    message += f"Total Messages: {stats['message_count']}\n"
-    message += f"Total Reactions: {stats['reaction_count']}\n\n"
+    message = f"Daily Report for {stats.date}\n\n"
+    message += f"Total Messages: {stats.message_count}\n"
+    message += f"Total Reactions: {stats.reaction_count}\n\n"
 
     return message
 
 
-def format_weekly_report(
-    start_date: str,
-    end_date: str,
-    total_messages: int,
-    total_reactions: int,
-    top_users: Optional[List[Dict[str, Any]]] = None,
-    top_posts: Optional[List[Dict[str, Any]]] = None,
-) -> str:
+def format_weekly_report(stats: WeeklyStats) -> str:
     """
     Format weekly report message
 
     Args:
-        start_date: Start date
-        end_date: End date
-        total_messages: Total message count
-        total_reactions: Total reaction count
-        top_users: Top users list
-        top_posts: Top posts list
+        stats: Weekly statistics
 
     Returns:
         str: Formatted message
     """
-    # Format message
-    message = f"Weekly Report ({start_date} to {end_date})\n\n"
-    message += f"Total Messages: {total_messages}\n"
-    message += f"Total Reactions: {total_reactions}\n\n"
+    message = f"Weekly Report ({stats.start_date} to {stats.end_date})\n\n"
+    message += f"Total Messages: {stats.message_count}\n"
+    message += f"Total Reactions: {stats.reaction_count}\n\n"
 
-    # Add top users
-    if top_users:
-        message += "Top Users:\n"
-        for user in top_users[:5]:
-            message += f"- {user['username']}: {user['message_count']} messages\n"
-
-    # Add top posts
-    if top_posts:
+    if stats.top_posts:
         message += "\nTop Posts:\n"
-        message += format_top_posts_with_reactions(top_posts)
+        message += format_top_posts_with_reactions(list(stats.top_posts))
 
     return message
 
@@ -104,7 +84,6 @@ def format_top_posts_with_reactions(posts: List[Dict[str, Any]]) -> str:
 
     Args:
         posts: List of posts with reactions
-        channel_name: Channel name
 
     Returns:
         str: Formatted string
@@ -114,18 +93,14 @@ def format_top_posts_with_reactions(posts: List[Dict[str, Any]]) -> str:
 
     formatted_posts = []
     for i, post in enumerate(posts, 1):
-        # Calculate total reactions
         total_reactions = sum(r["count"] for r in post["reactions"])
 
-        # Format message text (truncate if too long)
         message_text = post["text"]
         if len(message_text) > 100:
             message_text = message_text[:100] + "..."
 
-        # Use existing slack_link
         slack_link = post["slack_link"]
 
-        # Format post
         formatted_post = f"{i}. <{slack_link}|{message_text}> ({total_reactions} reactions)"
         formatted_posts.append(formatted_post)
 

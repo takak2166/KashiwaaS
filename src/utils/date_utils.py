@@ -4,17 +4,17 @@ Provides functions for date and time conversion and manipulation
 """
 
 import datetime
+import os
 from typing import Optional, Tuple, Union
 
 import pytz
 
-from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Timezone configuration
-DEFAULT_TIMEZONE = pytz.timezone(config.timezone if config else "Asia/Tokyo")
+# Timezone: use TIMEZONE env if set (same as AppConfig), avoid importing config at module load
+DEFAULT_TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Tokyo"))
 
 
 def get_current_time(timezone: Optional[pytz.timezone] = None) -> datetime.datetime:
@@ -65,64 +65,52 @@ def convert_from_timestamp(timestamp: float, timezone: Optional[pytz.timezone] =
     return datetime.datetime.fromtimestamp(timestamp, tz)
 
 
-def get_date_range(days: int, end_date: Optional[datetime.datetime] = None) -> Tuple[float, float]:
+def date_range_as_timestamps(days: int, end: datetime.datetime) -> Tuple[float, float]:
     """
-    Get date range as timestamps for the specified number of days
+    Inclusive calendar range [end - days, end] as Unix timestamps (start-of-day to end-of-day).
 
-    Args:
-        days: Number of days
-        end_date: End date (current time if not specified)
-
-    Returns:
-        Tuple[float, float]: (start timestamp, end timestamp)
+    Caller supplies ``end`` (e.g. from CLI or ``get_current_time()`` in the shell).
     """
-    end = end_date or get_current_time()
     start = end - datetime.timedelta(days=days)
-
-    # Adjust to start and end of day
     start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    end_day = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return convert_to_timestamp(start), convert_to_timestamp(end_day)
 
-    return convert_to_timestamp(start), convert_to_timestamp(end)
 
-
-def is_weekend(dt: Optional[datetime.datetime] = None) -> bool:
+def is_weekend(dt: datetime.datetime) -> bool:
     """
     Determine if the specified date is a weekend (Saturday or Sunday)
 
     Args:
-        dt: Datetime object (current time if not specified)
+        dt: Datetime object
 
     Returns:
         bool: True if weekend
     """
-    dt = dt or get_current_time()
     return dt.weekday() >= 5  # 5=Saturday, 6=Sunday
 
 
-def get_day_of_week(dt: Optional[datetime.datetime] = None) -> int:
+def get_day_of_week(dt: datetime.datetime) -> int:
     """
     Get day of week as a number (0=Monday, 6=Sunday)
 
     Args:
-        dt: Datetime object (current time if not specified)
+        dt: Datetime object
 
     Returns:
         int: Day of week (0-6)
     """
-    dt = dt or get_current_time()
     return dt.weekday()
 
 
-def get_hour_of_day(dt: Optional[datetime.datetime] = None) -> int:
+def get_hour_of_day(dt: datetime.datetime) -> int:
     """
     Get hour of day (0-23)
 
     Args:
-        dt: Datetime object (current time if not specified)
+        dt: Datetime object
 
     Returns:
         int: Hour of day (0-23)
     """
-    dt = dt or get_current_time()
     return dt.hour

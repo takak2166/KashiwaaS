@@ -21,7 +21,7 @@
 
 ```bash
 # Development
-poetry install && poetry run python src/main.py   # app entry (local)
+poetry install && poetry run python -m src.cli   # app entry (local)
 docker-compose up -d                                 # full stack
 
 # Testing / lint
@@ -44,7 +44,7 @@ README.md (setup & ops), docs/design.md (design)
 ## Architecture
 
 ```
-src/main.py          CLI and scheduled entry
+src/cli/             CLI entry (``python -m src.cli``) and fetch helpers
 src/slack/           Slack client and messages
 src/es_client/       Elasticsearch
 src/analysis/        Daily/weekly analysis and visualization

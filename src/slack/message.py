@@ -3,9 +3,12 @@ Slack Message Data Model
 Provides data classes for handling message data retrieved from the Slack API
 """
 
+from __future__ import annotations
+
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.utils.date_utils import (
     convert_from_timestamp,
@@ -13,6 +16,8 @@ from src.utils.date_utils import (
     get_hour_of_day,
     is_weekend,
 )
+
+_MENTION_PATTERN = re.compile(r"<@([A-Z0-9]+)>")
 
 
 @dataclass
@@ -63,7 +68,7 @@ class SlackMessage:
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_slack_data(cls, channel_id: str, message_data: Dict[str, Any]) -> "SlackMessage":
+    def from_slack_data(cls, channel_id: str, message_data: Dict[str, Any]) -> SlackMessage:
         """
         Create a SlackMessage object from message data retrieved from the Slack API
 
@@ -74,84 +79,75 @@ class SlackMessage:
         Returns:
             SlackMessage: Converted message object
         """
-        # Convert timestamp to Python datetime
-        ts = message_data.get("ts", "0")
-        timestamp = convert_from_timestamp(float(ts))
+        return build_slack_message(channel_id, message_data)
 
-        # User information
-        user_id = message_data.get("user", "unknown")
-        username = message_data.get("username", "Unknown User")
 
-        # Thread information
-        thread_ts = message_data.get("thread_ts")
-        reply_count = message_data.get("reply_count", 0)
+def extract_mentions(text: str) -> List[str]:
+    """Extract user IDs from Slack mention markup `<@U...>`."""
+    return _MENTION_PATTERN.findall(text or "")
 
-        # Reaction information
-        reactions = []
-        for reaction_data in message_data.get("reactions", []):
-            reaction = SlackReaction(
+
+def map_reactions(reactions_data: Optional[List[Dict[str, Any]]]) -> List[SlackReaction]:
+    """Map Slack API reaction dicts to SlackReaction objects."""
+    out: List[SlackReaction] = []
+    for reaction_data in reactions_data or []:
+        out.append(
+            SlackReaction(
                 name=reaction_data.get("name", ""),
                 count=reaction_data.get("count", 0),
                 users=reaction_data.get("users", []),
             )
-            reactions.append(reaction)
+        )
+    return out
 
-        # Extract mention information
-        mentions = []
-        text = message_data.get("text", "")
-        # Extract mentions in <@U12345> format
-        import re
 
-        mention_pattern = r"<@([A-Z0-9]+)>"
-        mentions = re.findall(mention_pattern, text)
-
-        # Attachment information
-        attachments = []
-        for file_data in message_data.get("files", []):
-            attachment = SlackAttachment(
+def map_attachments(files_data: Optional[List[Dict[str, Any]]]) -> List[SlackAttachment]:
+    """Map Slack API file dicts to SlackAttachment objects."""
+    out: List[SlackAttachment] = []
+    for file_data in files_data or []:
+        out.append(
+            SlackAttachment(
                 type=file_data.get("filetype", "unknown"),
                 size=file_data.get("size", 0),
                 url=file_data.get("url_private", None),
             )
-            attachments.append(attachment)
-
-        return cls(
-            channel_id=channel_id,
-            ts=ts,
-            user_id=user_id,
-            username=username,
-            text=text,
-            timestamp=timestamp,
-            is_weekend=is_weekend(timestamp),
-            hour_of_day=get_hour_of_day(timestamp),
-            day_of_week=get_day_of_week(timestamp),
-            thread_ts=thread_ts,
-            reply_count=reply_count,
-            reactions=reactions,
-            mentions=mentions,
-            attachments=attachments,
-            raw_data=message_data,
         )
+    return out
 
-    def to_elasticsearch_doc(self) -> Dict[str, Any]:
-        """
-        Convert data to JSON format as an Elasticsearch document
 
-        Returns:
-            Dict[str, Any]: Document that can be stored in Elasticsearch
-        """
-        return {
-            "timestamp": self.timestamp.isoformat(),
-            "channel_id": self.channel_id,
-            "user_id": self.user_id,
-            "username": self.username,
-            "text": self.text,
-            "thread_ts": self.thread_ts,
-            "reply_count": self.reply_count,
-            "reactions": [{"name": r.name, "count": r.count, "users": r.users} for r in self.reactions],
-            "mentions": self.mentions,
-            "attachments": [{"type": a.type, "size": a.size, "url": a.url} for a in self.attachments],
-            "is_weekend": self.is_weekend,
-            "hour_of_day": self.hour_of_day,
-            "day_of_week": self.day_of_week,
-        }
+def derive_message_time_fields(ts_dt: datetime) -> Tuple[bool, int, int]:
+    """Derived calendar fields for analytics: weekend flag, hour, weekday index."""
+    return is_weekend(ts_dt), get_hour_of_day(ts_dt), get_day_of_week(ts_dt)
+
+
+def build_slack_message(channel_id: str, message_data: Dict[str, Any]) -> SlackMessage:
+    """Assemble SlackMessage from raw Slack API message dict."""
+    ts = message_data.get("ts", "0")
+    timestamp = convert_from_timestamp(float(ts))
+    user_id = message_data.get("user", "unknown")
+    username = message_data.get("username", "Unknown User")
+    thread_ts = message_data.get("thread_ts")
+    reply_count = message_data.get("reply_count", 0)
+    text = message_data.get("text", "")
+    mentions = extract_mentions(text)
+    reactions = map_reactions(message_data.get("reactions", []))
+    attachments = map_attachments(message_data.get("files", []))
+    is_wk, hour, dow = derive_message_time_fields(timestamp)
+
+    return SlackMessage(
+        channel_id=channel_id,
+        ts=ts,
+        user_id=user_id,
+        username=username,
+        text=text,
+        timestamp=timestamp,
+        is_weekend=is_wk,
+        hour_of_day=hour,
+        day_of_week=dow,
+        thread_ts=thread_ts,
+        reply_count=reply_count,
+        reactions=reactions,
+        mentions=mentions,
+        attachments=attachments,
+        raw_data=message_data,
+    )

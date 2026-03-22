@@ -4,11 +4,11 @@ Provides functionality for managing Kibana dashboards
 """
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import requests
 
-from src.utils.config import config
+from src.utils.config import KibanaConfig
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -23,21 +23,17 @@ class KibanaDashboard:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        kibana: KibanaConfig,
     ):
         """
         Initialize Kibana Dashboard Manager
 
         Args:
-            host: Kibana host URL (default: http://kibana:5601)
-            username: Kibana username (if authentication is enabled)
-            password: Kibana password (if authentication is enabled)
+            kibana: Kibana host and optional credentials.
         """
-        self.host = host or config.kibana.host
-        self.username = username or config.kibana.username
-        self.password = password or config.kibana.password
+        self.host = kibana.host
+        self.username = kibana.username
+        self.password = kibana.password
 
         # Base URL for Kibana API
         self.api_base = f"{self.host}/api"

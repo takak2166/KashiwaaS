@@ -18,11 +18,13 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
 
 # Configure logger only once to avoid duplicate output when module is reloaded or imported from multiple paths
+_CONFIGURED = False
 
 
 def _configure_logger() -> None:
-    if len(logger._core.handlers) >= 3:
-        return  # Already configured (stderr + app.log + error.log)
+    global _CONFIGURED
+    if _CONFIGURED:
+        return
     logger.remove()  # Remove default handler (and any existing)
 
     # Log to standard error (catch=True avoids BrokenPipeError when stderr pipe is closed, e.g. in Docker)
@@ -38,25 +40,22 @@ def _configure_logger() -> None:
         catch=True,
     )
 
-    # Log to file
-    logger.add(
-        log_dir / "app.log",
-        rotation="1 day",
-        retention=LOG_RETENTION,
-        level=LOG_LEVEL,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-        encoding="utf-8",
-    )
+    _file_fmt = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+    for path, level in ((log_dir / "app.log", LOG_LEVEL), (log_dir / "error.log", "ERROR")):
+        try:
+            logger.add(
+                path,
+                rotation="1 day",
+                retention=LOG_RETENTION,
+                level=level,
+                format=_file_fmt,
+                encoding="utf-8",
+            )
+        except OSError:
+            # e.g. logs/ owned by root or read-only filesystem — stderr logging still works
+            pass
 
-    # Log errors to a separate file
-    logger.add(
-        log_dir / "error.log",
-        rotation="1 day",
-        retention=LOG_RETENTION,
-        level="ERROR",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-        encoding="utf-8",
-    )
+    _CONFIGURED = True
 
 
 _configure_logger()
