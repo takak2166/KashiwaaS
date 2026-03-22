@@ -50,10 +50,13 @@ jobs:
         run: |
           poetry run python - <<'PY'
           from unittest.mock import patch
+
           from src.bot import kashiwaas
+          from src.utils.config import load_config
 
           with patch.object(kashiwaas, "App") as mock_app:
-              app = kashiwaas.create_app()
+              cfg = load_config()
+              app = kashiwaas.create_app(cfg)
               assert app is not None
               assert mock_app.called
           PY
