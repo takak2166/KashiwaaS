@@ -2,7 +2,7 @@
 """
 Setup Elasticsearch Indices
 
-This script sets up the Elasticsearch index templates and indices for Slack messages.
+This script sets up Elasticsearch index templates and indices for Slack messages.
 """
 import argparse
 import sys
@@ -11,9 +11,11 @@ from pathlib import Path
 # Add the parent directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.bot.alerter import init_alerter
 from src.es_client.client import ElasticsearchClient
 from src.es_client.index import get_index_name, get_slack_template
-from src.utils.config import config
+from src.slack.client import SlackClient
+from src.utils.config import apply_dotenv, load_config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -49,7 +51,7 @@ def setup_index(client: ElasticsearchClient, channel_name: str) -> bool:
 
     Args:
         client: ElasticsearchClient instance
-        channel_name: Slack channel name
+        channel_name: Channel name
 
     Returns:
         bool: True if successful, False otherwise
@@ -84,14 +86,16 @@ def main():
 
     args = parser.parse_args()
 
+    apply_dotenv()
+    cfg = load_config()
+    init_alerter(cfg)
+
     # Get channel name
     channel_name = args.channel
-    if not channel_name and config and config.slack.channel_id:
+    if not channel_name and cfg.slack.channel_id:
         # Try to get channel name from Slack API
         try:
-            from src.slack.client import SlackClient
-
-            slack_client = SlackClient()
+            slack_client = SlackClient(token=cfg.slack.api_token, channel_id=cfg.slack.channel_id, dummy=False)
             channel_info = slack_client.get_channel_info()
             channel_name = channel_info.get("name")
             logger.info(f"Using channel name from API: {channel_name}")
@@ -102,8 +106,8 @@ def main():
 
     # Initialize Elasticsearch client
     try:
-        logger.info(f"Initializing Elasticsearch client with host: {config.elasticsearch.host}")
-        es_client = ElasticsearchClient(host=config.elasticsearch.host)
+        logger.info(f"Initializing Elasticsearch client with host: {cfg.elasticsearch.host}")
+        es_client = ElasticsearchClient(cfg.elasticsearch)
     except Exception as e:
         logger.error(f"Failed to connect to Elasticsearch: {e}")
         return 1

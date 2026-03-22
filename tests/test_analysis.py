@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.analysis.daily import get_daily_stats
+from src.analysis.types import DailyStats
 from src.analysis.visualization import (
     create_hourly_distribution_chart,
     create_hourly_line_chart,
@@ -46,25 +47,16 @@ class TestDailyAnalysis:
 
         result = get_daily_stats(channel_name, start_date, mock_es_client)
 
-        # Verify basic structure
-        assert isinstance(result, dict)
-        assert "date" in result
-        assert "message_count" in result
-        assert "reaction_count" in result
-        assert "hourly_message_counts" in result
+        assert isinstance(result, DailyStats)
 
         # Verify ES client method calls
         assert mock_es_client.search.call_count >= 1
 
-        # Verify date format
-        assert result["date"] == start_date.strftime("%Y-%m-%d")
+        assert result.date == start_date.strftime("%Y-%m-%d")
 
-        # Verify message count
-        assert result["message_count"] == 13
+        assert result.message_count == 13
 
-        # Verify hourly message counts
-        assert len(result["hourly_message_counts"]) == 24
-        assert isinstance(result["hourly_message_counts"], list)
+        assert len(result.hourly_message_counts) == 24
 
 
 class TestVisualization:

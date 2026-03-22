@@ -5,6 +5,8 @@ Pure functions: weekly date range, aggregation from daily rows, top-post query a
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
 
+from src.analysis.types import DailyStats
+
 
 def week_bounds_from_end_date(end_date: datetime) -> Tuple[datetime, datetime, str, str]:
     """
@@ -20,13 +22,13 @@ def week_bounds_from_end_date(end_date: datetime) -> Tuple[datetime, datetime, s
     )
 
 
-def aggregate_weekly_from_daily_stats(daily_stats: List[Dict[str, Any]]) -> Tuple[int, int, List[int]]:
-    """Sum messages/reactions and concatenate hourly arrays from daily stat dicts."""
-    total_messages = sum(s["message_count"] for s in daily_stats)
-    total_reactions = sum(s["reaction_count"] for s in daily_stats)
+def aggregate_weekly_from_daily_stats(daily_stats: List[DailyStats]) -> Tuple[int, int, List[int]]:
+    """Sum messages/reactions and concatenate hourly arrays from daily stats."""
+    total_messages = sum(s.message_count for s in daily_stats)
+    total_reactions = sum(s.reaction_count for s in daily_stats)
     hourly_flat: List[int] = []
     for s in daily_stats:
-        hourly_flat.extend(s["hourly_message_counts"])
+        hourly_flat.extend(s.hourly_message_counts)
     return total_messages, total_reactions, hourly_flat
 
 

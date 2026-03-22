@@ -8,6 +8,7 @@ from src.analysis.daily_pipeline import (
     parse_hourly_buckets_to_counts,
     parse_search_total_hits,
 )
+from src.analysis.types import DailyStats
 from src.analysis.visualization_prep import (
     aggregate_reaction_totals_from_top_posts,
     build_weekly_two_hour_series,
@@ -83,7 +84,12 @@ class TestSlackMappers:
 
 class TestReportPayloads:
     def test_build_daily_report_payload(self):
-        stats = {"date": "2025-01-01", "message_count": 1, "reaction_count": 0, "hourly_message_counts": [0] * 24}
+        stats = DailyStats(
+            date="2025-01-01",
+            message_count=1,
+            reaction_count=0,
+            hourly_message_counts=tuple([0] * 24),
+        )
         p = build_daily_report_payload(stats)
         assert "2025-01-01" in p.formatted_text
         assert p.stats == stats

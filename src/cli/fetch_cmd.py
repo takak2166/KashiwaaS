@@ -1,21 +1,22 @@
 """Fetch subcommand: Slack → optional Elasticsearch."""
 
 import sys
+from collections.abc import Iterator
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from src.bot.alerter import AlertLevel, alert
 from src.cli.fetch_pipeline import build_dummy_slack_raw_messages, resolve_fetch_window
 from src.es_client.client import ElasticsearchClient
 from src.slack.client import SlackClient
 from src.slack.message import SlackMessage
-from src.utils.config import config
+from src.utils.config import AppConfig
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def run_fetch_command(args) -> None:
+def run_fetch_command(args, cfg: AppConfig) -> None:
     """Wire argparse namespace to clients and ``fetch_messages``."""
     end_date = None
     if args.end_date and not args.all:
@@ -28,12 +29,13 @@ def run_fetch_command(args) -> None:
 
     slack_client: Optional[SlackClient] = None
     if not args.dummy:
-        slack_client = SlackClient(channel_id=args.channel)
+        channel_id = args.channel or cfg.slack.channel_id
+        slack_client = SlackClient(token=cfg.slack.api_token, channel_id=channel_id, dummy=False)
 
     es_client: Optional[ElasticsearchClient] = None
     if not args.no_store:
         try:
-            es_client = ElasticsearchClient()
+            es_client = ElasticsearchClient(cfg.elasticsearch)
             logger.info("Connected to Elasticsearch")
         except Exception as e:
             error_msg = f"Failed to connect to Elasticsearch: {e}"
@@ -43,7 +45,7 @@ def run_fetch_command(args) -> None:
                 level=AlertLevel.ERROR,
                 title="Elasticsearch Connection Error",
                 details={
-                    "host": config.elasticsearch.host if config else "unknown",
+                    "host": cfg.elasticsearch.host,
                     "error": str(e),
                 },
             )
@@ -61,6 +63,16 @@ def run_fetch_command(args) -> None:
         batch_size=args.batch_size,
         use_dummy=args.dummy,
     )
+
+
+def _iter_dummy_slack_messages() -> tuple[str, Iterator[SlackMessage]]:
+    channel_name, dummy_messages = build_dummy_slack_raw_messages(10)
+
+    def gen() -> Iterator[SlackMessage]:
+        for msg in dummy_messages:
+            yield SlackMessage.from_slack_data(channel_name, msg)
+
+    return channel_name, gen()
 
 
 def fetch_messages(
@@ -83,8 +95,7 @@ def fetch_messages(
 
     if use_dummy:
         logger.info("Using mock Slack data for testing")
-        channel_name, dummy_messages = build_dummy_slack_raw_messages(10)
-        messages = [SlackMessage.from_slack_data(channel_name, msg) for msg in dummy_messages]
+        channel_name, messages_iter = _iter_dummy_slack_messages()
     else:
         if slack_client is None:
             raise ValueError("slack_client is required when use_dummy is False")
@@ -105,8 +116,7 @@ def fetch_messages(
             return
 
         try:
-            messages = list(_fetch_slack_messages(client, start_date, end_date, include_threads))
-            logger.info(f"Fetched {len(messages)} messages from Slack")
+            messages_iter = _fetch_slack_messages(client, start_date, end_date, include_threads)
         except Exception as e:
             error_msg = f"Error during message fetching: {e}"
             logger.error(error_msg)
@@ -126,17 +136,19 @@ def fetch_messages(
     if store_messages:
         if es_client is None:
             raise ValueError("es_client is required when store_messages is True")
-        process_messages(es_client, messages, channel_name, batch_size)
+        total = process_messages(es_client, messages_iter, channel_name, batch_size)
+        logger.info(f"Completed. Total {total} messages processed")
     else:
-        for message in messages:
+        total = 0
+        for message in messages_iter:
             log_message(message)
-
-    logger.info(f"Completed. Total {len(messages)} messages processed")
+            total += 1
+        logger.info(f"Completed. Total {total} messages processed")
 
 
 def _fetch_slack_messages(
     client: SlackClient, start_date: Optional[datetime], end_date: datetime, include_threads: bool
-) -> List[SlackMessage]:
+) -> Iterator[SlackMessage]:
     message_count = 0
     for message in client.get_messages(oldest=start_date, latest=end_date, include_threads=include_threads):
         message_count += 1
@@ -156,22 +168,29 @@ def log_message(message: SlackMessage) -> None:
 
 
 def process_messages(
-    es_client: ElasticsearchClient, messages: List[SlackMessage], channel_name: str, batch_size: int = 500
-) -> None:
+    es_client: ElasticsearchClient,
+    messages: Iterator[SlackMessage],
+    channel_name: str,
+    batch_size: int = 500,
+) -> int:
+    """Buffer messages from iterator and bulk-index in chunks. Returns total count."""
     logger.info("Using injected Elasticsearch client")
-    messages_buffer: List[SlackMessage] = []
+    messages_buffer: list[SlackMessage] = []
+    total = 0
     for message in messages:
         log_message(message)
         messages_buffer.append(message)
+        total += 1
         if len(messages_buffer) >= batch_size:
             _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
             messages_buffer = []
     if messages_buffer:
         _store_messages_batch(es_client, channel_name, messages_buffer, batch_size)
+    return total
 
 
 def _store_messages_batch(
-    es_client: ElasticsearchClient, channel_name: str, messages: List[SlackMessage], batch_size: int
+    es_client: ElasticsearchClient, channel_name: str, messages: list[SlackMessage], batch_size: int
 ) -> None:
     try:
         result = es_client.index_slack_messages(channel_name, messages, batch_size)

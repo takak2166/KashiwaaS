@@ -18,6 +18,15 @@ from src.es_client.query import (
     terms_query,
 )
 from src.slack.message import SlackMessage, SlackReaction
+from src.utils.config import ElasticsearchConfig
+
+
+def _es_cfg(
+    host: str = "http://localhost:9200",
+    user: str | None = None,
+    password: str | None = None,
+) -> ElasticsearchConfig:
+    return ElasticsearchConfig(host=host, user=user, password=password)
 
 
 class TestElasticsearchClient:
@@ -29,7 +38,7 @@ class TestElasticsearchClient:
     )
     def test_connection(self):
         """Test connection to Elasticsearch"""
-        client = ElasticsearchClient()
+        client = ElasticsearchClient(_es_cfg(host=os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")))
         assert client.client.ping() is True
 
     @patch("src.es_client.client.Elasticsearch")
@@ -39,6 +48,12 @@ class TestElasticsearchClient:
         mock_es_instance = MagicMock()
         mock_elasticsearch.return_value = mock_es_instance
         mock_es_instance.ping.return_value = True
+
+        ElasticsearchClient(_es_cfg(host="http://localhost:9200", user="u", password="p"))
+        mock_elasticsearch.assert_called_once()
+        call_args = mock_elasticsearch.call_args
+        assert call_args[0][0] == "http://localhost:9200"
+        assert call_args[1].get("basic_auth") == ("u", "p")
 
     @patch("src.es_client.client.Elasticsearch")
     def test_create_index(self, mock_elasticsearch):
@@ -51,7 +66,7 @@ class TestElasticsearchClient:
         mock_es_instance.indices.create.return_value = {"acknowledged": True}
 
         # Create client and index
-        client = ElasticsearchClient()
+        client = ElasticsearchClient(_es_cfg())
         result = client.create_index("test-index")
 
         # Verify
@@ -69,7 +84,7 @@ class TestElasticsearchClient:
         mock_es_instance.indices.put_index_template.return_value = {"acknowledged": True}
 
         # Create client and template
-        client = ElasticsearchClient()
+        client = ElasticsearchClient(_es_cfg())
         result = client.create_template("test-template", SLACK_INDEX_TEMPLATE)
 
         # Verify
@@ -88,7 +103,7 @@ class TestElasticsearchClient:
         mock_es_instance.index.return_value = {"_id": "test-id", "result": "created"}
 
         # Create client and index document
-        client = ElasticsearchClient()
+        client = ElasticsearchClient(_es_cfg())
         document = {"field1": "value1", "field2": 42}
         result = client.index_document("test-index", document, doc_id="test-id")
 
@@ -107,7 +122,7 @@ class TestElasticsearchClient:
         mock_bulk.return_value = (10, 0)  # (success, failed)
 
         # Create client and bulk index
-        client = ElasticsearchClient()
+        client = ElasticsearchClient(_es_cfg())
         documents = [
             {"id": 1, "field1": "value1"},
             {"id": 2, "field1": "value2"},
@@ -164,7 +179,7 @@ class TestElasticsearchClient:
         ]
 
         # Create client and index messages
-        client = ElasticsearchClient()
+        client = ElasticsearchClient(_es_cfg())
         result = client.index_slack_messages("general", messages)
 
         # Verify

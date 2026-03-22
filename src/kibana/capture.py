@@ -4,9 +4,8 @@ Provides functionality for capturing Kibana dashboards using Selenium
 """
 
 import os
-import sys
 import time
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
@@ -16,13 +15,19 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from src.bot.alerter import AlertLevel, alert
-from src.utils.config import config
 from src.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from src.utils.config import AppConfig
 
 logger = get_logger(__name__)
 
 # Check if running in a headless environment
 HEADLESS_ENVIRONMENT = False
+
+
+class WebDriverError(RuntimeError):
+    """Selenium WebDriver could not be created (caller should handle; do not sys.exit)."""
 
 
 class KibanaCapture:
@@ -34,8 +39,9 @@ class KibanaCapture:
 
     def __init__(
         self,
-        kibana_host: Optional[str] = None,
-        selenium_host: Optional[str] = None,
+        *,
+        kibana_host: str,
+        selenium_host: str,
         username: Optional[str] = None,
         password: Optional[str] = None,
         wait_time: int = 30,
@@ -50,21 +56,26 @@ class KibanaCapture:
             password: Kibana password (if authentication is enabled)
             wait_time: Maximum wait time in seconds for page loading
         """
-        self.kibana_host = kibana_host or config.kibana.host
-        self.selenium_host = selenium_host or config.selenium_host
-        self.username = username or config.kibana.username
-        self.password = password or config.kibana.password
+        self.kibana_host = kibana_host
+        self.selenium_host = selenium_host
+        self.username = username
+        self.password = password
         self.wait_time = wait_time
-
-        if not self.kibana_host:
-            raise ValueError("Kibana host is required")
-        if not self.selenium_host:
-            raise ValueError("Selenium host is required")
 
         logger.info(f"Initialized Kibana Dashboard Capture with Kibana host: {self.kibana_host}")
         logger.info(f"Using Selenium host: {self.selenium_host}")
 
-    def _create_driver(self) -> Optional[webdriver.Remote]:
+    @classmethod
+    def from_config(cls, cfg: "AppConfig") -> "KibanaCapture":
+        """Build capture helper from loaded :class:`AppConfig`."""
+        return cls(
+            kibana_host=cfg.kibana.host,
+            selenium_host=cfg.selenium_host,
+            username=cfg.kibana.username,
+            password=cfg.kibana.password,
+        )
+
+    def _create_driver(self) -> webdriver.Remote:
         """
         Create Selenium WebDriver
 
@@ -79,31 +90,11 @@ class KibanaCapture:
         chrome_options.add_argument("--window-size=1920,1080")
 
         try:
-            driver = webdriver.Remote(command_executor=self.selenium_host, options=chrome_options)
-            return driver
+            return webdriver.Remote(command_executor=self.selenium_host, options=chrome_options)
         except Exception as e:
-            # Log full error with stack trace
             error_msg = f"Failed to create WebDriver: {e}"
             logger.error(error_msg)
-
-            # Create a simplified error message for the alert (without stack trace)
-            simple_error = str(e).split("\n")[0]  # Get only the first line
-            alert_msg = f"Failed to create WebDriver: {simple_error}"
-
-            # Send alert
-            alert(
-                message=alert_msg,
-                level=AlertLevel.CRITICAL,
-                title="CRITICAL: WebDriver Creation Failed - Kibana Dashboard Capture Impossible",
-                details={
-                    "selenium_host": self.selenium_host,
-                    "error_type": e.__class__.__name__,
-                },
-            )
-
-            # Exit program
-            logger.critical("Exiting program due to WebDriver creation failure")
-            sys.exit(1)
+            raise WebDriverError(error_msg) from e
 
     def _login_if_needed(self, driver: webdriver.Remote) -> bool:
         """

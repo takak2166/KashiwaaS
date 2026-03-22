@@ -5,6 +5,7 @@ Pure functions: daily Elasticsearch query bodies and response parsing.
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
+from src.analysis.types import DailyStats
 from src.es_client.query import timestamp_range_query
 
 
@@ -88,16 +89,16 @@ def parse_hourly_buckets_to_counts(response: Dict[str, Any]) -> List[int]:
     return hourly_counts
 
 
-def build_daily_stats_dict(
+def build_daily_stats(
     date_str: str,
     message_count: int,
     reaction_count: int,
     hourly_message_counts: List[int],
-) -> Dict[str, Any]:
-    """Assemble the daily stats dict consumed by formatters."""
-    return {
-        "date": date_str,
-        "message_count": message_count,
-        "reaction_count": reaction_count,
-        "hourly_message_counts": hourly_message_counts,
-    }
+) -> DailyStats:
+    """Assemble immutable daily stats for formatters and weekly aggregation."""
+    return DailyStats(
+        date=date_str,
+        message_count=message_count,
+        reaction_count=reaction_count,
+        hourly_message_counts=tuple(hourly_message_counts),
+    )

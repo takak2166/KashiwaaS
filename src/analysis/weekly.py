@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from src.analysis.daily import get_daily_stats
+from src.analysis.types import DailyStats, WeeklyStats
 from src.analysis.weekly_pipeline import (
     aggregate_weekly_from_daily_stats,
     build_top_posts_search_body,
@@ -16,7 +17,6 @@ from src.analysis.weekly_pipeline import (
 )
 from src.es_client.client import ElasticsearchClient
 from src.es_client.index import get_index_name
-from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,7 +26,9 @@ def get_weekly_stats(
     channel_name: str,
     es_client: ElasticsearchClient,
     end_date: Optional[datetime] = None,
-) -> Dict[str, Any]:
+    *,
+    fallback_channel_name: Optional[str] = None,
+) -> WeeklyStats:
     """
     Get weekly statistics
 
@@ -36,28 +38,31 @@ def get_weekly_stats(
         end_date: End date (default: yesterday)
 
     Returns:
-        Dict[str, Any]: Weekly statistics
+        Weekly statistics (possibly empty via :meth:`WeeklyStats.empty`)
     """
     if end_date is None:
         end_date = datetime.now() - timedelta(days=1)
 
     start_date, end_date, start_date_str, end_date_str = week_bounds_from_end_date(end_date)
 
-    if not channel_name and config:
-        channel_name = config.slack.channel_name
+    if not channel_name and fallback_channel_name:
+        channel_name = fallback_channel_name
     index_name = get_index_name(channel_name)
 
-    daily_stats: List[Dict[str, Any]] = []
+    daily_stats: List[DailyStats] = []
     error_dates: List[str] = []
     current_date = start_date
 
     while current_date <= end_date:
         try:
-            stats = get_daily_stats(channel_name, current_date, es_client)
-            daily_stats.append(stats)
-            logger.info(
-                f"Got daily stats for {current_date.strftime('%Y-%m-%d')}: " f"{stats['message_count']} messages"
+            stats = get_daily_stats(
+                channel_name,
+                current_date,
+                es_client,
+                fallback_channel_name=fallback_channel_name,
             )
+            daily_stats.append(stats)
+            logger.info(f"Got daily stats for {current_date.strftime('%Y-%m-%d')}: " f"{stats.message_count} messages")
         except Exception as e:
             error_msg = f"Failed to get daily stats for {current_date.strftime('%Y-%m-%d')}: {e}"
             logger.error(error_msg)
@@ -67,22 +72,22 @@ def get_weekly_stats(
 
     if not daily_stats:
         logger.error("No data available for the specified period")
-        return {}
+        return WeeklyStats.empty()
 
     total_messages, total_reactions, hourly_flat = aggregate_weekly_from_daily_stats(daily_stats)
 
     top_posts = get_top_posts_with_reactions(es_client, index_name, start_date_str, end_date_str)
 
-    return {
-        "start_date": start_date_str,
-        "end_date": end_date_str,
-        "message_count": total_messages,
-        "reaction_count": total_reactions,
-        "top_posts": top_posts,
-        "hourly_message_counts": hourly_flat,
-        "error_dates": error_dates,
-        "daily_stats": daily_stats,
-    }
+    return WeeklyStats(
+        start_date=start_date_str,
+        end_date=end_date_str,
+        message_count=total_messages,
+        reaction_count=total_reactions,
+        top_posts=tuple(top_posts),
+        hourly_message_counts=tuple(hourly_flat),
+        error_dates=tuple(error_dates),
+        daily_stats=tuple(daily_stats),
+    )
 
 
 def get_top_posts_with_reactions(
@@ -103,7 +108,7 @@ def get_top_posts_with_reactions(
         limit: Number of posts to return
 
     Returns:
-        List[Dict[str, Any]]: List of top posts with reactions
+        List of top posts with reactions
     """
     query = build_top_posts_search_body(start_date, end_date, size=100)
     response = es_client.search(index_name, query)

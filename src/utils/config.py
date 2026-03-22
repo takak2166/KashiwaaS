@@ -1,13 +1,13 @@
 """
-Configuration Management Module
-Loads and validates settings from environment variables
+Configuration: parse environment into immutable AppConfig (no import-time globals).
 """
+
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 from dotenv import load_dotenv
 
@@ -15,46 +15,42 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Load .env file
-dotenv_path = Path(".env")
-if dotenv_path.exists():
-    logger.info(f"Loading environment from {dotenv_path.absolute()}")
-    load_dotenv(dotenv_path)
-else:
-    logger.warning(f".env file not found at {dotenv_path.absolute()}")
+
+class ConfigError(ValueError):
+    """Raised when required configuration is missing or invalid."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class SlackConfig:
-    """Slack API configuration"""
+    """Slack API configuration (ingestion / reports)."""
 
-    api_token: str
-    channel_id: str
-    channel_name: str
+    api_token: Optional[str]
+    channel_id: Optional[str]
+    channel_name: Optional[str]
     alert_channel_id: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class AlertConfig:
-    """Alert configuration"""
+    """Alert configuration."""
 
-    min_level: str = "WARNING"  # INFO, WARNING, ERROR, CRITICAL
+    min_level: str = "WARNING"
     throttle_seconds: int = 300
     max_per_hour: int = 10
 
 
-@dataclass
+@dataclass(frozen=True)
 class ElasticsearchConfig:
-    """Elasticsearch configuration"""
+    """Elasticsearch configuration."""
 
     host: str
     user: Optional[str] = None
     password: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class KibanaConfig:
-    """Kibana configuration"""
+    """Kibana configuration."""
 
     host: str
     username: Optional[str] = None
@@ -62,9 +58,9 @@ class KibanaConfig:
     weekly_dashboard_id: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class CursorConfig:
-    """Cursor Cloud Agents API configuration"""
+    """Cursor Cloud Agents API configuration."""
 
     api_key: Optional[str] = None
     source_repository: str = "https://github.com/takak2166/KashiwaaS"
@@ -72,19 +68,21 @@ class CursorConfig:
     poll_interval: int = 5
     poll_timeout: int = 300
     model: Optional[str] = "composer-2"
+    conversation_retry_max_retries: int = 4
+    conversation_retry_delay_seconds: float = 1.5
 
 
-@dataclass
+@dataclass(frozen=True)
 class BotConfig:
-    """Bot (Socket Mode) configuration"""
+    """Bot (Socket Mode) configuration."""
 
     app_token: Optional[str] = None
     bot_token: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class AppConfig:
-    """Application-wide configuration"""
+    """Application-wide configuration."""
 
     slack: SlackConfig
     elasticsearch: ElasticsearchConfig
@@ -96,100 +94,107 @@ class AppConfig:
     bot: BotConfig
 
 
-def load_config() -> AppConfig:
+def apply_dotenv(dotenv_path: Optional[Path] = None) -> None:
+    """Load ``.env`` from the project root once (call from CLI / bot ``main``)."""
+    path = dotenv_path if dotenv_path is not None else Path(".env")
+    if path.exists():
+        logger.info(f"Loading environment from {path.absolute()}")
+        load_dotenv(path)
+    else:
+        logger.warning(f".env file not found at {path.absolute()}")
+
+
+def _get_str(env: Mapping[str, str], key: str, default: Optional[str] = None) -> Optional[str]:
+    v = env.get(key)
+    if v is None or v == "":
+        return default
+    return v
+
+
+def _get_int(env: Mapping[str, str], key: str, default: int) -> int:
+    raw = env.get(key)
+    if raw is None or raw == "":
+        return default
+    return int(raw)
+
+
+def _get_float(env: Mapping[str, str], key: str, default: float) -> float:
+    raw = env.get(key)
+    if raw is None or raw == "":
+        return default
+    return float(raw)
+
+
+def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     """
-    Load settings from environment variables and return an AppConfig object
+    Build AppConfig from environment variables.
+
+    Does not read ``.env``; call :func:`apply_dotenv` first if needed.
+
+    Args:
+        env: Mapping to read (default: ``os.environ``).
 
     Returns:
-        AppConfig: Application configuration
-
-    Raises:
-        ValueError: If required environment variables are not set
+        Parsed configuration.
     """
-    # Load Slack configuration
-    slack_token = os.getenv("SLACK_API_TOKEN")
-    slack_channel = os.getenv("SLACK_CHANNEL_ID")
-    slack_channel_name = os.getenv("SLACK_CHANNEL_NAME")
-    slack_alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID")
+    e = env if env is not None else os.environ
 
-    # Load Elasticsearch configuration
-    es_host = os.getenv("ELASTICSEARCH_HOST")
-    es_user = os.getenv("ELASTICSEARCH_USER")
-    es_password = os.getenv("ELASTICSEARCH_PASSWORD")
+    es_host = _get_str(e, "ELASTICSEARCH_HOST", "http://localhost:9200") or "http://localhost:9200"
 
-    # Load Kibana configuration
-    kibana_host = os.getenv("KIBANA_HOST")
-    kibana_username = os.getenv("KIBANA_USERNAME")
-    kibana_password = os.getenv("KIBANA_PASSWORD")
-    kibana_weekly_dashboard_id = os.getenv("KIBANA_WEEKLY_DASHBOARD_ID")
+    selenium = _get_str(e, "SELENIUM_HOST") or _get_str(e, "SELENIIUM_HOST") or "http://localhost:4444/wd/hub"
+    kibana_host = _get_str(e, "KIBANA_HOST", "http://localhost:5601")
 
-    # Load Selenium configuration
-    selenium_host = os.getenv("SELENIUM_HOST")
-
-    # Load Alert configuration
-    alert_min_level = os.getenv("ALERT_MIN_LEVEL", "WARNING")
-    alert_throttle_seconds = int(os.getenv("ALERT_THROTTLE_SECONDS", "300"))
-    alert_max_per_hour = int(os.getenv("ALERT_MAX_PER_HOUR", "10"))
-
-    # Timezone configuration
-    timezone = os.getenv("TIMEZONE", "Asia/Tokyo")
-
-    # Load Cursor configuration
-    cursor_api_key = os.getenv("CURSOR_API_KEY")
-    cursor_source_repository = os.getenv("CURSOR_SOURCE_REPOSITORY", "https://github.com/takak2166/KashiwaaS")
-    cursor_source_ref = os.getenv("CURSOR_SOURCE_REF", "main")
-    cursor_poll_interval = int(os.getenv("CURSOR_POLL_INTERVAL", "5"))
-    cursor_poll_timeout = int(os.getenv("CURSOR_POLL_TIMEOUT", "300"))
-    cursor_model = os.getenv("CURSOR_MODEL", "composer-2")
-
-    # Load Bot configuration
-    slack_app_token = os.getenv("SLACK_APP_TOKEN")
-    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+    conv_max = _get_int(e, "CURSOR_CONVERSATION_RETRY_MAX_RETRIES", 4)
+    conv_delay = _get_float(e, "CURSOR_CONVERSATION_RETRY_DELAY_SECONDS", 1.5)
 
     return AppConfig(
         slack=SlackConfig(
-            api_token=slack_token,
-            channel_id=slack_channel,
-            channel_name=slack_channel_name,
-            alert_channel_id=slack_alert_channel,
+            api_token=_get_str(e, "SLACK_API_TOKEN"),
+            channel_id=_get_str(e, "SLACK_CHANNEL_ID"),
+            channel_name=_get_str(e, "SLACK_CHANNEL_NAME"),
+            alert_channel_id=_get_str(e, "SLACK_ALERT_CHANNEL_ID"),
         ),
         elasticsearch=ElasticsearchConfig(
             host=es_host,
-            user=es_user,
-            password=es_password,
+            user=_get_str(e, "ELASTICSEARCH_USER"),
+            password=_get_str(e, "ELASTICSEARCH_PASSWORD"),
         ),
         kibana=KibanaConfig(
             host=kibana_host,
-            username=kibana_username,
-            password=kibana_password,
-            weekly_dashboard_id=kibana_weekly_dashboard_id,
+            username=_get_str(e, "KIBANA_USERNAME"),
+            password=_get_str(e, "KIBANA_PASSWORD"),
+            weekly_dashboard_id=_get_str(e, "KIBANA_WEEKLY_DASHBOARD_ID"),
         ),
-        selenium_host=selenium_host,
-        timezone=timezone,
+        selenium_host=selenium,
+        timezone=_get_str(e, "TIMEZONE", "Asia/Tokyo") or "Asia/Tokyo",
         alert=AlertConfig(
-            min_level=alert_min_level,
-            throttle_seconds=alert_throttle_seconds,
-            max_per_hour=alert_max_per_hour,
+            min_level=_get_str(e, "ALERT_MIN_LEVEL", "WARNING") or "WARNING",
+            throttle_seconds=_get_int(e, "ALERT_THROTTLE_SECONDS", 300),
+            max_per_hour=_get_int(e, "ALERT_MAX_PER_HOUR", 10),
         ),
         cursor=CursorConfig(
-            api_key=cursor_api_key,
-            source_repository=cursor_source_repository,
-            source_ref=cursor_source_ref,
-            poll_interval=cursor_poll_interval,
-            poll_timeout=cursor_poll_timeout,
-            model=cursor_model,
+            api_key=_get_str(e, "CURSOR_API_KEY"),
+            source_repository=_get_str(e, "CURSOR_SOURCE_REPOSITORY", "https://github.com/takak2166/KashiwaaS")
+            or "https://github.com/takak2166/KashiwaaS",
+            source_ref=_get_str(e, "CURSOR_SOURCE_REF", "main") or "main",
+            poll_interval=_get_int(e, "CURSOR_POLL_INTERVAL", 5),
+            poll_timeout=_get_int(e, "CURSOR_POLL_TIMEOUT", 300),
+            model=_get_str(e, "CURSOR_MODEL", "composer-2"),
+            conversation_retry_max_retries=conv_max,
+            conversation_retry_delay_seconds=conv_delay,
         ),
         bot=BotConfig(
-            app_token=slack_app_token,
-            bot_token=slack_bot_token,
+            app_token=_get_str(e, "SLACK_APP_TOKEN"),
+            bot_token=_get_str(e, "SLACK_BOT_TOKEN"),
         ),
     )
 
 
-# Global configuration object
-try:
-    config = load_config()
-    logger.info(f"Configuration loaded successfully. Timezone: {config.timezone}, Now: {datetime.now()}")
-except ValueError as e:
-    logger.error(f"Failed to load configuration: {e}")
-    config = None
+def validate_cli_config(cfg: AppConfig) -> None:
+    """Raise ConfigError if CLI (fetch/report) cannot run with this config."""
+    if not cfg.slack.api_token:
+        raise ConfigError("SLACK_API_TOKEN is required for CLI commands")
+    if not cfg.slack.channel_id:
+        raise ConfigError("SLACK_CHANNEL_ID is required for CLI commands")
+    if not cfg.slack.channel_name:
+        raise ConfigError("SLACK_CHANNEL_NAME is required for CLI commands")

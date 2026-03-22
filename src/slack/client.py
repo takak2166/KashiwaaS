@@ -11,7 +11,6 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from src.slack.message import SlackMessage
-from src.utils.config import config
 from src.utils.logger import get_logger
 from src.utils.retry import is_temporary_error, retry_with_backoff
 
@@ -36,12 +35,12 @@ class SlackClient:
             dummy: Whether to use dummy data instead of real Slack API
         """
         self.dummy = dummy
-        self.token = token or (config.slack.api_token if config else None)
+        self.token = token
 
         if not self.dummy and not self.token:
             raise ValueError("Slack API token is required when not in dummy mode")
 
-        self.channel_id = channel_id or (config.slack.channel_id if config else None)
+        self.channel_id = channel_id
         if not self.channel_id:
             raise ValueError("Slack channel ID is required")
 

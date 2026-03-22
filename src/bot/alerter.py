@@ -1,7 +1,8 @@
 """
-Alerter Module
-Provides functionality for sending alerts to Slack
+Alerter: Slack alerts with explicit AppConfig (no global config import).
 """
+
+from __future__ import annotations
 
 import time
 from datetime import datetime
@@ -9,7 +10,7 @@ from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set
 
 from src.slack.client import SlackClient
-from src.utils.config import config
+from src.utils.config import AppConfig
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -24,35 +25,33 @@ class AlertLevel(Enum):
     CRITICAL = auto()
 
 
+_LEVEL_MAP = {
+    "INFO": AlertLevel.INFO,
+    "WARNING": AlertLevel.WARNING,
+    "ERROR": AlertLevel.ERROR,
+    "CRITICAL": AlertLevel.CRITICAL,
+}
+
+
 class Alerter:
     """
-    Alerter class for sending alerts to Slack
-
-    Handles alert throttling, formatting, and delivery to Slack.
+    Alerter: throttling, formatting, optional Slack delivery via injected SlackClient.
     """
 
-    # Class variables for alert throttling
-    _last_alerts: Dict[str, float] = {}  # key -> timestamp
-    _alert_counts: Dict[str, int] = {}  # key -> count
-    _sent_alerts: Set[str] = set()  # Set of alert keys that have been sent
+    _last_alerts: Dict[str, float] = {}
+    _alert_counts: Dict[str, int] = {}
+    _sent_alerts: Set[str] = set()
 
     def __init__(
         self,
+        *,
+        slack_client: Optional[SlackClient] = None,
         alert_channel_id: Optional[str] = None,
         min_level: AlertLevel = AlertLevel.WARNING,
-        throttle_seconds: int = 300,  # 5 minutes
+        throttle_seconds: int = 300,
         max_alerts_per_hour: int = 10,
     ):
-        """
-        Initialize the Alerter
-
-        Args:
-            alert_channel_id: Slack channel ID for alerts (if not specified, retrieved from environment variables)
-            min_level: Minimum alert level to send
-            throttle_seconds: Minimum seconds between identical alerts
-            max_alerts_per_hour: Maximum number of alerts per hour
-        """
-        self.alert_channel_id = alert_channel_id or (config.slack.alert_channel_id if config else None)
+        self.alert_channel_id = alert_channel_id
         if not self.alert_channel_id:
             logger.warning("Alert channel ID not specified, alerts will be logged but not sent to Slack")
 
@@ -62,8 +61,7 @@ class Alerter:
         self.hourly_alert_count = 0
         self.hour_start_time = time.time()
 
-        # Initialize Slack client if channel ID is provided
-        self.slack_client = SlackClient(channel_id=self.alert_channel_id) if self.alert_channel_id else None
+        self.slack_client = slack_client
 
         logger.info(
             f"Alerter initialized with min_level={min_level.name}, "
@@ -80,51 +78,29 @@ class Alerter:
         alert_key: Optional[str] = None,
         notify_users: Optional[List[str]] = None,
     ) -> bool:
-        """
-        Send an alert
-
-        Args:
-            message: Alert message
-            level: Alert level
-            title: Alert title (optional)
-            details: Additional details (optional)
-            alert_key: Key for throttling identical alerts (optional)
-            notify_users: List of user IDs to notify (optional)
-
-        Returns:
-            bool: True if alert was sent, False otherwise
-        """
-        # Check if alert level meets minimum threshold
         if level.value < self.min_level.value:
             logger.debug(f"Alert level {level.name} below minimum {self.min_level.name}, not sending")
             return False
 
-        # Generate alert key if not provided
         if not alert_key:
             alert_key = f"{level.name}:{message}"
 
-        # Check for throttling
         current_time = time.time()
 
-        # Reset hourly counter if an hour has passed
         if current_time - self.hour_start_time > 3600:
             self.hourly_alert_count = 0
             self.hour_start_time = current_time
 
-        # Check if we've exceeded the hourly limit
         if self.hourly_alert_count >= self.max_alerts_per_hour:
             logger.warning(f"Hourly alert limit reached ({self.max_alerts_per_hour}), not sending alert: {message}")
             return False
 
-        # Check if this alert was sent recently
         last_time = self._last_alerts.get(alert_key, 0)
         if current_time - last_time < self.throttle_seconds:
-            # Update count for this alert
             self._alert_counts[alert_key] = self._alert_counts.get(alert_key, 0) + 1
             logger.debug(f"Throttling alert {alert_key}, occurred {self._alert_counts[alert_key]} times")
             return False
 
-        # Format the alert message
         formatted_message = self._format_alert(
             message=message,
             level=level,
@@ -135,15 +111,12 @@ class Alerter:
             count=self._alert_counts.get(alert_key, 0),
         )
 
-        # Log the alert
         log_method = getattr(logger, level.name.lower(), logger.warning)
         log_method(f"ALERT: {message}")
 
-        # Send to Slack if client is available
         sent = False
         if self.slack_client:
             try:
-                # Use formatted_message as fallback text for clients that don't support blocks
                 self.slack_client.post_message(
                     text=formatted_message,
                     blocks=self._create_alert_blocks(
@@ -159,17 +132,14 @@ class Alerter:
                 sent = True
                 self.hourly_alert_count += 1
 
-                # Reset the count for this alert
                 if alert_key in self._alert_counts:
                     self._alert_counts[alert_key] = 0
 
-                # Add to sent alerts set
                 self._sent_alerts.add(alert_key)
 
             except Exception as e:
                 logger.error(f"Failed to send alert to Slack: {e}")
 
-        # Update last alert time
         self._last_alerts[alert_key] = current_time
 
         return sent
@@ -184,22 +154,6 @@ class Alerter:
         notify_users: Optional[List[str]] = None,
         count: int = 0,
     ) -> str:
-        """
-        Format alert message
-
-        Args:
-            message: Alert message
-            level: Alert level
-            title: Alert title (optional)
-            details: Additional details (optional)
-            alert_key: Alert key (optional)
-            notify_users: List of user IDs to notify (optional)
-            count: Number of times this alert has occurred (optional)
-
-        Returns:
-            str: Formatted alert message
-        """
-        # Level emoji
         level_emoji = {
             AlertLevel.INFO: ":information_source:",
             AlertLevel.WARNING: ":warning:",
@@ -207,31 +161,24 @@ class Alerter:
             AlertLevel.CRITICAL: ":rotating_light:",
         }.get(level, ":warning:")
 
-        # Format title
         if not title:
             title = f"{level.name} Alert"
 
-        # Format timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Format user mentions
         mentions = ""
         if notify_users:
             mentions = " " + " ".join([f"<@{user_id}>" for user_id in notify_users])
 
-        # Add @channel mention for CRITICAL alerts
         if level == AlertLevel.CRITICAL:
             mentions += " <!channel>"
 
-        # Format count
         count_str = f" (occurred {count+1} times)" if count > 0 else ""
 
-        # Format message
         formatted_message = f"{level_emoji} *{title}*{mentions}{count_str}\n"
         formatted_message += f"*Time:* {timestamp}\n"
         formatted_message += f"*Message:* {message}\n"
 
-        # Add details if provided
         if details:
             formatted_message += "*Details:*\n"
             for key, value in details.items():
@@ -249,30 +196,12 @@ class Alerter:
         alert_key: Optional[str] = None,
         count: int = 0,
     ) -> List[Dict[str, Any]]:
-        """
-        Create Slack blocks for alert
-
-        Args:
-            message: Alert message
-            level: Alert level
-            title: Alert title (optional)
-            details: Additional details (optional)
-            alert_key: Alert key (optional)
-            count: Number of times this alert has occurred (optional)
-
-        Returns:
-            List[Dict[str, Any]]: Slack blocks
-        """
-
-        # Format title
         if not title:
             title = f"{level.name} Alert"
 
-        # Format count
         if count > 0:
             title = f"{title} (occurred {count+1} times)"
 
-        # Create blocks - simplified to avoid duplication with formatted_message
         blocks = [
             {
                 "type": "header",
@@ -281,26 +210,40 @@ class Alerter:
             {"type": "section", "text": {"type": "mrkdwn", "text": formatted_message}},
         ]
 
-        # Add divider
         blocks.append({"type": "divider"})
 
         return blocks
 
 
-# Global alerter instance
 _alerter: Optional[Alerter] = None
 
 
-def get_alerter() -> Alerter:
-    """
-    Get the global alerter instance
-
-    Returns:
-        Alerter: Global alerter instance
-    """
+def init_alerter(cfg: AppConfig) -> None:
+    """Build the process-wide Alerter from ``AppConfig`` (call from entrypoints)."""
     global _alerter
+
+    slack_for_alerts: Optional[SlackClient] = None
+    if cfg.slack.alert_channel_id and cfg.slack.api_token:
+        slack_for_alerts = SlackClient(
+            token=cfg.slack.api_token,
+            channel_id=cfg.slack.alert_channel_id,
+            dummy=False,
+        )
+
+    min_lvl = _LEVEL_MAP.get(cfg.alert.min_level.upper(), AlertLevel.WARNING)
+
+    _alerter = Alerter(
+        slack_client=slack_for_alerts,
+        alert_channel_id=cfg.slack.alert_channel_id,
+        min_level=min_lvl,
+        throttle_seconds=cfg.alert.throttle_seconds,
+        max_alerts_per_hour=cfg.alert.max_per_hour,
+    )
+
+
+def get_alerter() -> Alerter:
     if _alerter is None:
-        _alerter = Alerter()
+        raise RuntimeError("init_alerter(load_config()) must be called before using alerts")
     return _alerter
 
 
@@ -312,20 +255,6 @@ def alert(
     alert_key: Optional[str] = None,
     notify_users: Optional[List[str]] = None,
 ) -> bool:
-    """
-    Send an alert using the global alerter
-
-    Args:
-        message: Alert message
-        level: Alert level
-        title: Alert title (optional)
-        details: Additional details (optional)
-        alert_key: Key for throttling identical alerts (optional)
-        notify_users: List of user IDs to notify (optional)
-
-    Returns:
-        bool: True if alert was sent, False otherwise
-    """
     return get_alerter().alert(
         message=message,
         level=level,

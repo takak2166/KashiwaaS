@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from matplotlib.figure import Figure
 
+from src.analysis.types import WeeklyStats
 from src.analysis.visualization_prep import (
     aggregate_reaction_totals_from_top_posts,
     build_weekly_two_hour_series,
@@ -189,7 +190,7 @@ def create_hourly_line_chart(
     return fig
 
 
-def create_weekly_hourly_line_chart(stats: Dict[str, Any], title: str = "Message Activity Over Week") -> go.Figure:
+def create_weekly_hourly_line_chart(stats: WeeklyStats, title: str = "Message Activity Over Week") -> go.Figure:
     """
     Create a line chart showing message activity by hour over a week
 
@@ -200,8 +201,8 @@ def create_weekly_hourly_line_chart(stats: Dict[str, Any], title: str = "Message
     Returns:
         go.Figure: Plotly figure
     """
-    hourly_counts = stats["hourly_message_counts"]
-    start_date = datetime.strptime(stats["start_date"], "%Y-%m-%d")
+    hourly_counts = list(stats.hourly_message_counts)
+    start_date = datetime.strptime(stats.start_date, "%Y-%m-%d")
     two_hour_counts, two_hour_labels = build_weekly_two_hour_series(start_date, hourly_counts)
 
     # Create figure
@@ -264,7 +265,7 @@ def save_figure(fig: Union[Figure, go.Figure], filename: str, dpi: int = 100, fo
     return output_path
 
 
-def create_weekly_report_charts(stats: Dict[str, Any], output_dir: str = "reports") -> Dict[str, str]:
+def create_weekly_report_charts(stats: WeeklyStats, output_dir: str = "reports") -> Dict[str, str]:
     """
     Create charts for weekly report
 
@@ -275,20 +276,17 @@ def create_weekly_report_charts(stats: Dict[str, Any], output_dir: str = "report
     Returns:
         Dict[str, str]: Chart paths
     """
-    # Get date range
-    start_date = stats["start_date"]
-    end_date = stats["end_date"]
+    start_date = stats.start_date
+    end_date = stats.end_date
 
-    # Create weekly hourly line chart (168 hours)
     weekly_hourly_fig = create_weekly_hourly_line_chart(
         stats, title=f"Message Activity Over Week ({start_date} to {end_date})"
     )
     weekly_hourly_path = save_figure(weekly_hourly_fig, f"{output_dir}/hourly_weekly")
 
-    # Create reaction pie chart if there are reactions
     reaction_pie_path = None
-    if stats["reaction_count"] > 0:
-        top_reactions = aggregate_reaction_totals_from_top_posts(stats["top_posts"], limit=10)
+    if stats.reaction_count > 0:
+        top_reactions = aggregate_reaction_totals_from_top_posts(list(stats.top_posts), limit=10)
 
         # Pie chart for reactions
         reaction_pie_fig = create_reaction_pie_chart(

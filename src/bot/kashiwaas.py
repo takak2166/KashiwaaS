@@ -4,18 +4,21 @@ Slack Socket Mode application that answers questions via Cursor Cloud Agents API
 """
 
 import hashlib
-import os
-import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+from src.bot.alerter import init_alerter
+from src.bot.kashiwaas_mention import (
+    extract_question,
+    is_duplicate_assistant_reply,
+    slack_mention_event_from_dict,
+)
 from src.bot.thread_store import ThreadStore
 from src.cursor.client import (
     AgentStatus,
@@ -23,19 +26,17 @@ from src.cursor.client import (
     CursorClient,
     CursorTimeoutError,
 )
+from src.utils.config import AppConfig, ConfigError, apply_dotenv, load_config
 from src.utils.logger import get_logger
 
-dotenv_path = Path(".env")
-if dotenv_path.exists():
-    load_dotenv(dotenv_path)
-
 logger = get_logger(__name__)
+
+_extract_question = extract_question  # tests import from kashiwaas
 
 SLACK_MESSAGE_MAX_LENGTH = 4000
 # Block Kit markdown block: standard Markdown in `text` (Slack converts for display).
 # https://docs.slack.dev/reference/block-kit/blocks/markdown-block/
 SLACK_MARKDOWN_BLOCK_TEXT_MAX = 12000
-MENTION_PATTERN = re.compile(r"<@[\w]+>")
 # Deduplicate by (channel, event_ts): skip processing if we already handled this event (e.g. Slack retry).
 PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
 _processed_events: dict[tuple[str, str], float] = {}
@@ -93,22 +94,24 @@ def _thread_ts_lock(thread_ts: str):
         lock.release()
 
 
-def create_app() -> App:
-    """Create and configure the Slack Bolt application."""
-    app = App(token=os.environ["SLACK_BOT_TOKEN"])
+def create_app(cfg: AppConfig) -> App:
+    """Create and configure the Slack Bolt application from loaded config."""
+    if not cfg.bot.bot_token:
+        raise ConfigError("SLACK_BOT_TOKEN is required for the bot")
+    if not cfg.cursor.api_key:
+        raise ConfigError("CURSOR_API_KEY is required for the bot")
+
+    app = App(token=cfg.bot.bot_token)
 
     cursor_client = CursorClient(
-        api_key=os.environ["CURSOR_API_KEY"],
-        source_repository=os.environ.get(
-            "CURSOR_SOURCE_REPOSITORY",
-            "https://github.com/takak2166/KashiwaaS",
-        ),
-        source_ref=os.environ.get("CURSOR_SOURCE_REF", "main"),
-        poll_interval=int(os.environ.get("CURSOR_POLL_INTERVAL", "5")),
-        poll_timeout=int(os.environ.get("CURSOR_POLL_TIMEOUT", "300")),
-        model=os.environ.get("CURSOR_MODEL", "composer-2"),
-        conversation_retry_max_retries=int(os.environ.get("CURSOR_CONVERSATION_RETRY_MAX_RETRIES", "4")),
-        conversation_retry_delay_seconds=float(os.environ.get("CURSOR_CONVERSATION_RETRY_DELAY_SECONDS", "1.5")),
+        api_key=cfg.cursor.api_key,
+        source_repository=cfg.cursor.source_repository,
+        source_ref=cfg.cursor.source_ref,
+        poll_interval=cfg.cursor.poll_interval,
+        poll_timeout=cfg.cursor.poll_timeout,
+        model=cfg.cursor.model,
+        conversation_retry_max_retries=cfg.cursor.conversation_retry_max_retries,
+        conversation_retry_delay_seconds=cfg.cursor.conversation_retry_delay_seconds,
     )
 
     @app.event("app_mention")
@@ -120,12 +123,6 @@ def create_app() -> App:
         logger.info(body)
 
     return app
-
-
-def _extract_question(text: str) -> str:
-    """Remove mention tags and extract the actual question text."""
-    question = MENTION_PATTERN.sub("", text).strip()
-    return question
 
 
 def _fingerprint_text(text: str) -> str:
@@ -152,7 +149,6 @@ def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> lis
 
         chunks.append(text[:split_pos])
         rest = text[split_pos:]
-        # Strip the single delimiter at the split (newline or space) for consistent chunk boundaries
         if rest.startswith("\n"):
             rest = rest[1:]
         elif rest.startswith(" "):
@@ -198,7 +194,6 @@ def _is_duplicate_event(channel: str, event_ts: str) -> bool:
     key = (channel, event_ts)
     now = time.time()
     with _processed_events_lock:
-        # Evict old entries
         expired = [k for k, t in _processed_events.items() if now - t > PROCESSED_EVENT_TTL_SECONDS]
         for k in expired:
             del _processed_events[k]
@@ -210,13 +205,13 @@ def _is_duplicate_event(channel: str, event_ts: str) -> bool:
 
 def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
     """Process an app_mention event."""
-    # Socket Mode requires ack within 3 seconds; ack first so Slack does not timeout.
     ack()
 
-    text = event.get("text", "")
-    channel = event.get("channel", "")
-    event_ts = event.get("ts", "")
-    thread_ts = event.get("thread_ts") or event_ts
+    ev = slack_mention_event_from_dict(event)
+    text = ev.raw_text
+    channel = ev.channel
+    event_ts = ev.event_ts
+    thread_ts = ev.thread_ts
 
     if _is_duplicate_event(channel, event_ts):
         logger.info(f"Duplicate app_mention skipped: channel={channel}, ts={event_ts}")
@@ -224,7 +219,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
 
     logger.info(f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={text!r}")
 
-    question = _extract_question(text)
+    question = extract_question(text)
     if not question:
         say(text="Please enter a question. Example: `@kashiwaas How do I use Python async?`", thread_ts=thread_ts)
         return
@@ -249,7 +244,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                         thread_store.set(thread_ts, result.agent_id)
 
                 if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                    # Clear mapping so the next mention creates a fresh agent.
                     thread_store.remove(thread_ts)
                     _remove_reaction(client, channel, event_ts, "eyes")
                     _add_reaction(client, channel, event_ts, "x")
@@ -271,14 +265,17 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 last_sent_fingerprint = thread_store.get_last_message_fingerprint(thread_ts)
                 current_fingerprint = _fingerprint_text(latest_msg.text)
 
-                def _is_duplicate() -> bool:
-                    return (last_sent_message_id and latest_msg.id == last_sent_message_id) or (
-                        last_sent_fingerprint and current_fingerprint == last_sent_fingerprint
+                def _dup() -> bool:
+                    return is_duplicate_assistant_reply(
+                        last_sent_message_id=last_sent_message_id,
+                        last_sent_fingerprint=last_sent_fingerprint,
+                        assistant_message_id=latest_msg.id,
+                        assistant_text_fingerprint=current_fingerprint,
                     )
 
-                if _is_duplicate():
-                    max_retries = getattr(cursor_client, "conversation_retry_max_retries", 4)
-                    delay_seconds = getattr(cursor_client, "conversation_retry_delay_seconds", 1.5)
+                if _dup():
+                    max_retries = cursor_client.conversation_retry_max_retries
+                    delay_seconds = cursor_client.conversation_retry_delay_seconds
                     for attempt in range(max_retries):
                         logger.info(
                             "Duplicate assistant message detected; retrying conversation fetch "
@@ -295,10 +292,10 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                             break
                         latest_msg = latest
                         current_fingerprint = _fingerprint_text(latest_msg.text)
-                        if not _is_duplicate():
+                        if not _dup():
                             break
 
-                    if _is_duplicate():
+                    if _dup():
                         _remove_reaction(client, channel, event_ts, "eyes")
                         _add_reaction(client, channel, event_ts, "x")
                         say(
@@ -310,7 +307,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 logger.info(
                     f"Sending assistant message: thread_ts={thread_ts}, event_ts={event_ts}, msg_id={latest_msg.id}"
                 )
-                # Set before sending to avoid re-sending the same message on retries/errors.
                 thread_store.set_last_message_id(thread_ts, latest_msg.id)
                 thread_store.set_last_message_fingerprint(thread_ts, current_fingerprint)
 
@@ -321,7 +317,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 _add_reaction(client, channel, event_ts, "white_check_mark")
 
             except CursorTimeoutError:
-                # Treat timeouts as a terminal failure for this agent; allow a fresh agent on retry.
                 thread_store.remove(thread_ts)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
@@ -342,7 +337,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                         thread_ts=thread_ts,
                     )
                 else:
-                    # For non-auth API errors, assume the agent is broken and clear the mapping.
                     thread_store.remove(thread_ts)
                     say(
                         text="Sorry, failed to retrieve a response. Please try again later.",
@@ -350,7 +344,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                     )
             except Exception as e:
                 logger.error(f"Unexpected error handling mention: {e}")
-                # On unexpected errors, clear the mapping to avoid trapping the thread with a bad agent.
                 thread_store.remove(thread_ts)
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
@@ -362,12 +355,25 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
     threading.Thread(target=_process, daemon=True).start()
 
 
-def main():
+def main() -> None:
     """Entry point for the kashiwaas bot."""
-    app = create_app()
+    apply_dotenv()
+    cfg = load_config()
+    init_alerter(cfg)
+
+    if not cfg.bot.app_token:
+        logger.error("SLACK_APP_TOKEN is required for the bot")
+        sys.exit(1)
+
+    try:
+        app = create_app(cfg)
+    except ConfigError as e:
+        logger.error("%s", e)
+        sys.exit(1)
+
     handler = SocketModeHandler(
         app=app,
-        app_token=os.environ["SLACK_APP_TOKEN"],
+        app_token=cfg.bot.app_token,
     )
     logger.info("KashiwaaS bot starting...")
     handler.start()

@@ -17,7 +17,7 @@ from src.bot.alerter import AlertLevel, alert
 from src.es_client.index import get_index_name
 from src.es_client.slack_doc import slack_message_to_doc
 from src.slack.message import SlackMessage
-from src.utils.config import config
+from src.utils.config import ElasticsearchConfig
 from src.utils.logger import get_logger
 from src.utils.retry import retry_with_backoff
 
@@ -66,21 +66,17 @@ class ElasticsearchClient:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
+        elasticsearch: ElasticsearchConfig,
     ):
         """
-        Initialize the Elasticsearch client
+        Initialize the Elasticsearch client.
 
         Args:
-            host: Elasticsearch host URL (if not specified, retrieved from environment variables)
-            user: Elasticsearch username (if not specified, retrieved from environment variables)
-            password: Elasticsearch password (if not specified, retrieved from environment variables)
+            elasticsearch: Host and optional basic-auth credentials.
         """
-        self.host = host or (config.elasticsearch.host if config else "http://localhost:9200")
-        self.user = user or (config.elasticsearch.user if config else None)
-        self.password = password or (config.elasticsearch.password if config else None)
+        self.host = elasticsearch.host
+        self.user = elasticsearch.user
+        self.password = elasticsearch.password
 
         # Connection options
         conn_options = {}

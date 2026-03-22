@@ -18,7 +18,7 @@ from src.bot.report_payloads import (
 from src.es_client.client import ElasticsearchClient
 from src.kibana.capture import KibanaCapture
 from src.slack.client import SlackClient
-from src.utils.config import config
+from src.utils.config import AppConfig
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +26,7 @@ logger = get_logger(__name__)
 
 def generate_daily_report(
     es_client: ElasticsearchClient,
+    cfg: AppConfig,
     slack_client: Optional[SlackClient] = None,
     channel_id: Optional[str] = None,
     channel_name: Optional[str] = None,
@@ -72,8 +73,13 @@ def generate_daily_report(
 
     # Get daily stats
     try:
-        stats = get_daily_stats(channel_name or "", target_date, es_client)
-        logger.info(f"Got daily stats: {stats['message_count']} messages, {stats['reaction_count']} reactions")
+        stats = get_daily_stats(
+            channel_name or "",
+            target_date,
+            es_client,
+            fallback_channel_name=cfg.slack.channel_name,
+        )
+        logger.info(f"Got daily stats: {stats.message_count} messages, {stats.reaction_count} reactions")
     except Exception as e:
         error_msg = f"Failed to get daily stats: {e}"
         logger.error(error_msg)
@@ -114,6 +120,7 @@ def generate_daily_report(
 
 def generate_weekly_report(
     es_client: ElasticsearchClient,
+    cfg: AppConfig,
     slack_client: Optional[SlackClient] = None,
     kibana_capture: Optional[KibanaCapture] = None,
     channel_id: Optional[str] = None,
@@ -154,12 +161,17 @@ def generate_weekly_report(
             )
             return
 
-    weekly_dashboard_id = (config.kibana.weekly_dashboard_id or f"{channel_name}-weekly") if config else ""
+    weekly_dashboard_id = cfg.kibana.weekly_dashboard_id or f"{channel_name}-weekly"
 
     # Get weekly stats
     try:
-        stats = get_weekly_stats(channel_name or "", es_client, end_date=end_date)
-        logger.info(f"Got weekly stats: {stats['message_count']} messages, {stats['reaction_count']} reactions")
+        stats = get_weekly_stats(
+            channel_name or "",
+            es_client,
+            end_date=end_date,
+            fallback_channel_name=cfg.slack.channel_name,
+        )
+        logger.info(f"Got weekly stats: {stats.message_count} messages, {stats.reaction_count} reactions")
     except Exception as e:
         error_msg = f"Failed to get weekly stats: {e}"
         logger.error(error_msg)
@@ -170,6 +182,18 @@ def generate_weekly_report(
                 level=AlertLevel.ERROR,
                 title="Weekly Report - Stats Error",
                 details={"channel": channel_name, "error": str(e)},
+            )
+        return
+
+    if not stats.daily_stats:
+        error_msg = "No data available for the specified period"
+        logger.error(error_msg)
+        if not dry_run:
+            alert(
+                message=error_msg,
+                level=AlertLevel.ERROR,
+                title="Weekly Report - No Data",
+                details={"channel": channel_name},
             )
         return
 
@@ -192,7 +216,7 @@ def generate_weekly_report(
                 title="Weekly Report - Chart Generation Error",
                 details={
                     "channel": channel_name,
-                    "period": f"{stats.get('start_date', '')} to {stats.get('end_date', '')}",
+                    "period": f"{stats.start_date} to {stats.end_date}",
                     "error": str(e),
                 },
             )
@@ -216,7 +240,7 @@ def generate_weekly_report(
                 title="Weekly Report - Kibana Capture Error",
                 details={
                     "channel": channel_name,
-                    "period": f"{stats['start_date']} to {stats['end_date']}",
+                    "period": f"{stats.start_date} to {stats.end_date}",
                     "dashboard_id": weekly_dashboard_id,
                     "error": str(e),
                 },
@@ -246,7 +270,7 @@ def generate_weekly_report(
                 title="Weekly Report - Posting Error",
                 details={
                     "channel": channel_name,
-                    "period": f"{stats['start_date']} to {stats['end_date']}",
+                    "period": f"{stats.start_date} to {stats.end_date}",
                     "error": str(e),
                 },
             )
