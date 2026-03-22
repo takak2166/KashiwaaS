@@ -321,7 +321,14 @@ project/
 │       ├── index_pattern.ndjson.j2
 │       └── lens.ndjson.j2
 ├── src/
-│   ├── main.py              # エントリーポイント
+│   ├── cli/
+│   │   ├── __init__.py
+│   │   ├── __main__.py
+│   │   ├── main.py          # エントリ（サブコマンド振り分け）
+│   │   ├── args.py          # argparse
+│   │   ├── fetch_cmd.py     # fetch サブコマンド
+│   │   ├── report_cmd.py    # report サブコマンド
+│   │   └── fetch_pipeline.py
 │   ├── slack/
 │   │   ├── __init__.py
 │   │   ├── client.py        # Slack API操作

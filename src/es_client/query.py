@@ -49,6 +49,32 @@ def terms_query(field: str, values: List[Any]) -> Dict[str, Any]:
     return {"terms": {field: values}}
 
 
+def timestamp_range_query(
+    field: str,
+    *,
+    gte: Optional[Any] = None,
+    lte: Optional[Any] = None,
+    gt: Optional[Any] = None,
+    lt: Optional[Any] = None,
+    time_zone: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Range query on a date field with optional calendar time_zone (e.g. daily JST windows).
+    """
+    range_params: Dict[str, Any] = {}
+    if gte is not None:
+        range_params["gte"] = gte
+    if lte is not None:
+        range_params["lte"] = lte
+    if gt is not None:
+        range_params["gt"] = gt
+    if lt is not None:
+        range_params["lt"] = lt
+    if time_zone is not None:
+        range_params["time_zone"] = time_zone
+    return {"range": {field: range_params}}
+
+
 def range_query(
     field: str,
     gte: Optional[Any] = None,

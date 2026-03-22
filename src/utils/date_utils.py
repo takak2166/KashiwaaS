@@ -65,25 +65,16 @@ def convert_from_timestamp(timestamp: float, timezone: Optional[pytz.timezone] =
     return datetime.datetime.fromtimestamp(timestamp, tz)
 
 
-def get_date_range(days: int, end_date: Optional[datetime.datetime] = None) -> Tuple[float, float]:
+def date_range_as_timestamps(days: int, end: datetime.datetime) -> Tuple[float, float]:
     """
-    Get date range as timestamps for the specified number of days
+    Inclusive calendar range [end - days, end] as Unix timestamps (start-of-day to end-of-day).
 
-    Args:
-        days: Number of days
-        end_date: End date (current time if not specified)
-
-    Returns:
-        Tuple[float, float]: (start timestamp, end timestamp)
+    Caller supplies ``end`` (e.g. from CLI or ``get_current_time()`` in the shell).
     """
-    end = end_date or get_current_time()
     start = end - datetime.timedelta(days=days)
-
-    # Adjust to start and end of day
     start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    return convert_to_timestamp(start), convert_to_timestamp(end)
+    end_day = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return convert_to_timestamp(start), convert_to_timestamp(end_day)
 
 
 def is_weekend(dt: datetime.datetime) -> bool:

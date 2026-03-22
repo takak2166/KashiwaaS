@@ -98,12 +98,12 @@ jobs:
           docker compose exec app poetry run python scripts/import_kibana_objects.py --overwrite
 
       - name: Run fetch command with dummy data
-        run: docker compose exec app poetry run python src/main.py fetch --dummy
+        run: docker compose exec app poetry run python -m src.cli fetch --dummy
 
       - name: Dry-run report command
         run: |
-          docker compose exec app poetry run python src/main.py report --type daily --channel dummy-channel --dry-run
-          docker compose exec app poetry run python src/main.py report --type weekly --channel dummy-channel --dry-run
+          docker compose exec app poetry run python -m src.cli report --type daily --channel dummy-channel --dry-run
+          docker compose exec app poetry run python -m src.cli report --type weekly --channel dummy-channel --dry-run
 
       - name: Clean up
         if: always()

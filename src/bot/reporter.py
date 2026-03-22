@@ -3,7 +3,7 @@ Reporter Module
 Provides functionality for generating and posting reports to Slack
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -11,17 +11,14 @@ from src.analysis.daily import get_daily_stats
 from src.analysis.visualization import create_weekly_report_charts
 from src.analysis.weekly import get_weekly_stats
 from src.bot.alerter import AlertLevel, alert
-from src.bot.formatter import (
-    format_chart_title,
-    format_daily_report,
-    format_dashboard_title,
-    format_weekly_report,
+from src.bot.report_payloads import (
+    build_daily_report_payload,
+    build_weekly_report_payload,
 )
 from src.es_client.client import ElasticsearchClient
 from src.kibana.capture import KibanaCapture
 from src.slack.client import SlackClient
 from src.utils.config import config
-from src.utils.date_utils import get_current_time
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -43,7 +40,7 @@ def generate_daily_report(
         slack_client: Slack client for channel info and posting (omit when dry_run)
         channel_id: Channel ID
         channel_name: Channel name (used when dry_run or after resolving from API)
-        target_date: Target date (default: yesterday)
+        target_date: Target date (caller should supply; CLI uses ``src.cli`` default: yesterday)
         dry_run: Whether to only display report without posting
     """
     if not dry_run and slack_client is None:
@@ -68,10 +65,8 @@ def generate_daily_report(
             )
             return
 
-    # Set target_date to yesterday if not specified
     if target_date is None:
-        current_time = get_current_time()
-        target_date = current_time - timedelta(days=1)
+        raise ValueError("target_date is required (set default in CLI / caller)")
 
     logger.info(f"Generating daily report for {target_date.strftime('%Y-%m-%d')}")
 
@@ -92,16 +87,15 @@ def generate_daily_report(
             )
         return
 
-    # Format report message
-    message = format_daily_report(stats)
+    payload = build_daily_report_payload(stats)
 
     # Display report
-    logger.info(f"Daily Report:\n{message}")
+    logger.info(f"Daily Report:\n{payload.formatted_text}")
 
     # Post to Slack if not dry run
     if not dry_run and client is not None:
         try:
-            post_result = client.post_message(message)
+            post_result = client.post_message(payload.formatted_text)
             logger.info("Posted daily report to Slack")
             logger.info(f"Post result: {post_result}")
         except Exception as e:
@@ -228,35 +222,18 @@ def generate_weekly_report(
                 },
             )
 
-    # Format report message
-    message = format_weekly_report(
-        start_date=stats["start_date"],
-        end_date=stats["end_date"],
-        total_messages=stats["message_count"],
-        total_reactions=stats["reaction_count"],
-        top_posts=stats["top_posts"],
-    )
+    payload = build_weekly_report_payload(stats, chart_paths, kibana_screenshot)
 
     # Display report
-    logger.info(f"Weekly Report:\n{message}")
+    logger.info(f"Weekly Report:\n{payload.formatted_text}")
 
     # Post to Slack if not dry run
     if not dry_run and client is not None:
         try:
-            client.post_message(message)
+            client.post_message(payload.formatted_text)
 
-            for chart_type, chart_path in chart_paths.items():
-                if chart_path:
-                    client.upload_file(
-                        chart_path,
-                        format_chart_title(chart_type, f"{stats['start_date']} to {stats['end_date']}", is_weekly=True),
-                    )
-
-            if kibana_screenshot:
-                client.upload_file(
-                    kibana_screenshot,
-                    format_dashboard_title(f"{stats['start_date']} to {stats['end_date']}", is_weekly=True),
-                )
+            for item in payload.upload_plan:
+                client.upload_file(item.path, item.title)
 
             logger.info("Posted weekly report to Slack")
         except Exception as e:

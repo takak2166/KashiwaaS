@@ -2,17 +2,23 @@
 Provides visualization functionality for analysis results.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Tuple, Union
 
 import matplotlib
+
+matplotlib.use("Agg")  # Set the backend to Agg before importing pyplot
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from matplotlib.figure import Figure
 
+from src.analysis.visualization_prep import (
+    aggregate_reaction_totals_from_top_posts,
+    build_weekly_two_hour_series,
+    group_hourly_dict,
+)
 from src.utils.logger import get_logger
 
-matplotlib.use("Agg")  # Set the backend to Agg before importing pyplot
 logger = get_logger(__name__)
 
 
@@ -84,22 +90,7 @@ def create_hourly_distribution_chart(
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Prepare data
-    if group_by > 1:
-        # Group hours
-        grouped_data = {}
-        for hour in range(0, 24, group_by):
-            group_count = sum(hourly_data.get(h, 0) for h in range(hour, min(hour + group_by, 24)))
-            grouped_data[hour] = group_count
-
-        hours = list(range(0, 24, group_by))
-        counts = [grouped_data.get(hour, 0) for hour in hours]
-        labels = [f"{h:02d}:00-{(h+group_by) % 24:02d}:00" for h in hours]
-    else:
-        # Use hourly data as is
-        hours = list(range(24))
-        counts = [hourly_data.get(hour, 0) for hour in hours]
-        labels = [f"{h:02d}:00" for h in hours]
+    counts, hours, labels = group_hourly_dict(hourly_data, group_by)
 
     # Create bar chart
     bars = ax.bar(range(len(hours)), counts, color="#007bff", alpha=0.7)
@@ -159,22 +150,7 @@ def create_hourly_line_chart(
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Prepare data
-    if group_by > 1:
-        # Group hours
-        grouped_data = {}
-        for hour in range(0, 24, group_by):
-            group_count = sum(hourly_data.get(h, 0) for h in range(hour, min(hour + group_by, 24)))
-            grouped_data[hour] = group_count
-
-        hours = list(range(0, 24, group_by))
-        counts = [grouped_data.get(hour, 0) for hour in hours]
-        labels = [f"{h:02d}:00-{(h + group_by) % 24:02d}:00" for h in hours]
-    else:
-        # Use hourly data as is
-        hours = list(range(24))
-        counts = [hourly_data.get(hour, 0) for hour in hours]
-        labels = [f"{h:02d}:00" for h in hours]
+    counts, hours, labels = group_hourly_dict(hourly_data, group_by)
 
     # Create line chart
     x_values = range(len(hours))
@@ -224,24 +200,9 @@ def create_weekly_hourly_line_chart(stats: Dict[str, Any], title: str = "Message
     Returns:
         go.Figure: Plotly figure
     """
-    # Get hourly message counts
     hourly_counts = stats["hourly_message_counts"]
-
-    # Get date range
     start_date = datetime.strptime(stats["start_date"], "%Y-%m-%d")
-
-    # Aggregate counts into 2-hour intervals
-    two_hour_counts = []
-    two_hour_labels = []
-    for day in range(7):
-        current_date = start_date + timedelta(days=day)
-        for hour in range(0, 24, 2):
-            # Sum counts for current 2-hour interval
-            count = sum(hourly_counts[day * 24 + hour : day * 24 + hour + 2])
-            two_hour_counts.append(count)
-            # Format label as yyyy-mm-dd hh:mm
-            label = f"{current_date.strftime('%Y-%m-%d')} {hour:02d}:00"
-            two_hour_labels.append(label)
+    two_hour_counts, two_hour_labels = build_weekly_two_hour_series(start_date, hourly_counts)
 
     # Create figure
     fig = go.Figure()
@@ -327,24 +288,7 @@ def create_weekly_report_charts(stats: Dict[str, Any], output_dir: str = "report
     # Create reaction pie chart if there are reactions
     reaction_pie_path = None
     if stats["reaction_count"] > 0:
-        # Aggregate reaction data
-        reaction_counts = {}
-        for post in stats["top_posts"]:
-            for reaction in post["reactions"]:
-                name = reaction["name"]
-                count = reaction["count"]
-                if name in reaction_counts:
-                    reaction_counts[name] += count
-                else:
-                    reaction_counts[name] = count
-
-        # Sort reactions by count
-        top_reactions = [
-            {"name": name, "count": count}
-            for name, count in sorted(reaction_counts.items(), key=lambda x: x[1], reverse=True)
-        ][
-            :10
-        ]  # Top 10
+        top_reactions = aggregate_reaction_totals_from_top_posts(stats["top_posts"], limit=10)
 
         # Pie chart for reactions
         reaction_pie_fig = create_reaction_pie_chart(
