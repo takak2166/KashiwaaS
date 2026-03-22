@@ -194,7 +194,8 @@ def validate_cli_config(cfg: AppConfig, *, require_slack_credentials: bool = Tru
     """
     Raise ConfigError if CLI (fetch/report) cannot run with this config.
 
-    ``fetch --dummy`` does not call the Slack API; pass ``require_slack_credentials=False``.
+    ``fetch --dummy`` and ``report --dry-run`` do not call the Slack API; pass
+    ``require_slack_credentials=False``.
     """
     if not require_slack_credentials:
         return

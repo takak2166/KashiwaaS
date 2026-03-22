@@ -23,6 +23,8 @@ def main() -> None:
         args = parse_args()
         if args.command == "fetch" and getattr(args, "dummy", False):
             validate_cli_config(cfg, require_slack_credentials=False)
+        elif args.command == "report" and getattr(args, "dry_run", False):
+            validate_cli_config(cfg, require_slack_credentials=False)
         elif args.command in ("fetch", "report"):
             validate_cli_config(cfg)
     except ConfigError as e:
