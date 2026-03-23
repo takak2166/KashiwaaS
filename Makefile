@@ -2,7 +2,7 @@
 
 setup:
 	@echo "Setting up development environment..."
-	@command -v poetry >/dev/null 2>&1 || (echo "Installing Poetry..." && pip install poetry==2.1.1)
+	@command -v poetry >/dev/null 2>&1 || (echo "Installing Poetry..." && pip install poetry==2.3.2)
 	@echo "Installing dependencies..."
 	poetry install
 
