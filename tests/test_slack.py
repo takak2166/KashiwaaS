@@ -182,3 +182,21 @@ class TestSlackClientMock:
         mock_client.conversations_history.assert_called_once()
         # Verify thread replies were not fetched (test data has no thread)
         mock_client.conversations_replies.assert_not_called()
+
+    @patch("src.slack.client.WebClient")
+    def test_post_message_markdown_uses_blocks(self, mock_web_client):
+        mock_client = MagicMock()
+        mock_web_client.return_value = mock_client
+        mock_client.chat_postMessage.return_value = {"ok": True, "ts": "1.0"}
+
+        client = SlackClient(token="xoxb-test-token", channel_id="C12345678")
+        body = "Hello\n\n1. [label](https://example.com) (2 reactions)"
+        client.post_message_markdown(body)
+
+        mock_client.chat_postMessage.assert_called_once()
+        call_kw = mock_client.chat_postMessage.call_args[1]
+        assert call_kw["channel"] == "C12345678"
+        assert call_kw["text"] == body
+        assert len(call_kw["blocks"]) == 1
+        assert call_kw["blocks"][0]["type"] == "markdown"
+        assert call_kw["blocks"][0]["text"] == body

@@ -16,6 +16,39 @@ from src.utils.retry import is_temporary_error, retry_with_backoff
 
 logger = get_logger(__name__)
 
+# Notifications / search preview (`text`); Block Kit markdown body uses a higher limit (see kashiwaas).
+SLACK_MESSAGE_MAX_LENGTH = 4000
+SLACK_MARKDOWN_BLOCK_TEXT_MAX = 12000
+
+
+def _fallback_notification_text(text: str, max_len: int = SLACK_MESSAGE_MAX_LENGTH) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1] + "…"
+
+
+def _split_text_for_markdown_blocks(text: str, max_length: int = SLACK_MARKDOWN_BLOCK_TEXT_MAX) -> List[str]:
+    if len(text) <= max_length:
+        return [text]
+    chunks: List[str] = []
+    rest = text
+    while rest:
+        if len(rest) <= max_length:
+            chunks.append(rest)
+            break
+        split_pos = rest.rfind("\n", 0, max_length)
+        if split_pos == -1:
+            split_pos = rest.rfind(" ", 0, max_length)
+        if split_pos <= 0:
+            split_pos = max_length
+        chunks.append(rest[:split_pos])
+        rest = rest[split_pos:]
+        if rest.startswith("\n"):
+            rest = rest[1:]
+        elif rest.startswith(" "):
+            rest = rest[1:]
+    return chunks
+
 
 class SlackClient:
     """
@@ -320,6 +353,39 @@ class SlackClient:
 
         except SlackApiError as e:
             logger.error(f"Failed to post message: {e}")
+            self._handle_rate_limit(e)
+            raise
+
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying post_message_markdown after error: {e}"
+        ),
+    )
+    def post_message_markdown(self, text: str, thread_ts: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Post using Block Kit `markdown` blocks (GFM-style), same approach as KashiwaaS bot.
+        Avoids plain-text escaping of `<` in mrkdwn links.
+        """
+        try:
+            chunks = _split_text_for_markdown_blocks(text)
+            blocks = [{"type": "markdown", "text": chunk} for chunk in chunks]
+            params: Dict[str, Any] = {
+                "channel": self.channel_id,
+                "text": _fallback_notification_text(text),
+                "blocks": blocks,
+            }
+            if thread_ts is not None:
+                params["thread_ts"] = thread_ts
+            response = self.client.chat_postMessage(**params)
+            logger.info(f"Markdown message posted to channel {self.channel_id}")
+            return response
+        except SlackApiError as e:
+            logger.error(f"Failed to post markdown message: {e}")
             self._handle_rate_limit(e)
             raise
 
