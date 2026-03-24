@@ -10,6 +10,7 @@ import pytest
 
 from src.es_client.slack_doc import slack_message_to_doc
 from src.slack.client import SlackClient
+from src.slack.markdown_blocks import markdown_blocks_for_text
 from src.slack.message import SlackMessage, SlackReaction
 
 
@@ -200,3 +201,9 @@ class TestSlackClientMock:
         assert len(call_kw["blocks"]) == 1
         assert call_kw["blocks"][0]["type"] == "markdown"
         assert call_kw["blocks"][0]["text"] == body
+
+    def test_markdown_blocks_for_text_matches_post_message_markdown(self):
+        body = "Hello\n\n1. [label](https://example.com) (2 reactions)"
+        blocks = markdown_blocks_for_text(body)
+        assert len(blocks) == 1
+        assert blocks[0] == {"type": "markdown", "text": body}

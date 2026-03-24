@@ -26,6 +26,7 @@ from src.cursor.client import (
     CursorClient,
     CursorTimeoutError,
 )
+from src.slack import markdown_blocks as _slack_md
 from src.utils.config import AppConfig, ConfigError, apply_dotenv, load_config
 from src.utils.logger import get_logger
 
@@ -33,10 +34,13 @@ logger = get_logger(__name__)
 
 _extract_question = extract_question  # tests import from kashiwaas
 
-SLACK_MESSAGE_MAX_LENGTH = 4000
-# Block Kit markdown block: standard Markdown in `text` (Slack converts for display).
-# https://docs.slack.dev/reference/block-kit/blocks/markdown-block/
-SLACK_MARKDOWN_BLOCK_TEXT_MAX = 12000
+# Re-export for tests (implementation lives in src.slack.markdown_blocks)
+SLACK_MESSAGE_MAX_LENGTH = _slack_md.SLACK_MESSAGE_MAX_LENGTH
+SLACK_MARKDOWN_BLOCK_TEXT_MAX = _slack_md.SLACK_MARKDOWN_BLOCK_TEXT_MAX
+_split_message = _slack_md.split_slack_message_text
+_fallback_notification_text = _slack_md.fallback_notification_text
+_say_markdown_chunks = _slack_md.say_markdown_chunks
+
 # Deduplicate by (channel, event_ts): skip processing if we already handled this event (e.g. Slack retry).
 PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
 _processed_events: dict[tuple[str, str], float] = {}
@@ -128,51 +132,6 @@ def create_app(cfg: AppConfig) -> App:
 def _fingerprint_text(text: str) -> str:
     normalized = text.replace("\r\n", "\n").rstrip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
-def _split_message(text: str, max_length: int = SLACK_MESSAGE_MAX_LENGTH) -> list[str]:
-    """Split a long message into chunks respecting Slack's character limit."""
-    if len(text) <= max_length:
-        return [text]
-
-    chunks = []
-    while text:
-        if len(text) <= max_length:
-            chunks.append(text)
-            break
-
-        split_pos = text.rfind("\n", 0, max_length)
-        if split_pos == -1:
-            split_pos = text.rfind(" ", 0, max_length)
-        if split_pos <= 0:
-            split_pos = max_length
-
-        chunks.append(text[:split_pos])
-        rest = text[split_pos:]
-        if rest.startswith("\n"):
-            rest = rest[1:]
-        elif rest.startswith(" "):
-            rest = rest[1:]
-        text = rest
-
-    return chunks
-
-
-def _fallback_notification_text(text: str, max_len: int = SLACK_MESSAGE_MAX_LENGTH) -> str:
-    """Plain `text` for chat.postMessage (notifications, search); keep under Slack limits."""
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 1] + "…"
-
-
-def _say_markdown_chunks(say, chunks: list[str], thread_ts: str) -> None:
-    """Post assistant content using Block Kit `markdown` blocks (Slack renders GFM-style Markdown)."""
-    for chunk in chunks:
-        say(
-            text=_fallback_notification_text(chunk),
-            blocks=[{"type": "markdown", "text": chunk}],
-            thread_ts=thread_ts,
-        )
 
 
 def _add_reaction(client, channel: str, timestamp: str, name: str) -> None:
@@ -310,8 +269,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 thread_store.set_last_message_id(thread_ts, latest_msg.id)
                 thread_store.set_last_message_fingerprint(thread_ts, current_fingerprint)
 
-                chunks = _split_message(latest_msg.text, max_length=SLACK_MARKDOWN_BLOCK_TEXT_MAX)
-                _say_markdown_chunks(say, chunks, thread_ts)
+                _slack_md.say_markdown_text(say, latest_msg.text, thread_ts)
 
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "white_check_mark")
