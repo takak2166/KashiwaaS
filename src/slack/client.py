@@ -10,6 +10,10 @@ from typing import Any, Dict, Generator, List, Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from src.slack.markdown_blocks import (
+    fallback_notification_text,
+    markdown_blocks_for_text,
+)
 from src.slack.message import SlackMessage
 from src.utils.logger import get_logger
 from src.utils.retry import is_temporary_error, retry_with_backoff
@@ -320,6 +324,38 @@ class SlackClient:
 
         except SlackApiError as e:
             logger.error(f"Failed to post message: {e}")
+            self._handle_rate_limit(e)
+            raise
+
+    @retry_with_backoff(
+        max_retries=3,
+        initial_backoff=1.0,
+        backoff_factor=2.0,
+        exceptions_to_retry=[SlackApiError],
+        should_retry_fn=is_temporary_error,
+        on_retry_callback=lambda retries, e, wait_time: logger.warning(
+            f"Retrying post_message_markdown after error: {e}"
+        ),
+    )
+    def post_message_markdown(self, text: str, thread_ts: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Post using Block Kit `markdown` blocks (GFM-style), same approach as KashiwaaS bot.
+        Avoids plain-text escaping of `<` in mrkdwn links.
+        """
+        try:
+            blocks = markdown_blocks_for_text(text)
+            params: Dict[str, Any] = {
+                "channel": self.channel_id,
+                "text": fallback_notification_text(text),
+                "blocks": blocks,
+            }
+            if thread_ts is not None:
+                params["thread_ts"] = thread_ts
+            response = self.client.chat_postMessage(**params)
+            logger.info(f"Markdown message posted to channel {self.channel_id}")
+            return response
+        except SlackApiError as e:
+            logger.error(f"Failed to post markdown message: {e}")
             self._handle_rate_limit(e)
             raise
 

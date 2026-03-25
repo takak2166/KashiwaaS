@@ -101,7 +101,7 @@ def generate_daily_report(
     # Post to Slack if not dry run
     if not dry_run and client is not None:
         try:
-            post_result = client.post_message(payload.formatted_text)
+            post_result = client.post_message_markdown(payload.formatted_text)
             logger.info("Posted daily report to Slack")
             logger.info(f"Post result: {post_result}")
         except Exception as e:
@@ -254,7 +254,7 @@ def generate_weekly_report(
     # Post to Slack if not dry run
     if not dry_run and client is not None:
         try:
-            client.post_message(payload.formatted_text)
+            client.post_message_markdown(payload.formatted_text)
 
             for item in payload.upload_plan:
                 client.upload_file(item.path, item.title)

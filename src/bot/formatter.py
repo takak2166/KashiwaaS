@@ -99,9 +99,11 @@ def format_top_posts_with_reactions(posts: List[Dict[str, Any]]) -> str:
         if len(message_text) > 100:
             message_text = message_text[:100] + "..."
 
+        # `[` / `]` would break GFM link syntax in Block Kit markdown blocks
+        label = message_text.replace("[", " ").replace("]", " ")
         slack_link = post["slack_link"]
 
-        formatted_post = f"{i}. <{slack_link}|{message_text}> ({total_reactions} reactions)"
+        formatted_post = f"{i}. [{label}]({slack_link}) ({total_reactions} reactions)"
         formatted_posts.append(formatted_post)
 
     return "\n\n".join(formatted_posts)
