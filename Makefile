@@ -11,12 +11,10 @@ install:
 	poetry install
 
 lint:
-	@echo "Running black..."
-	poetry run black .
-	@echo "Running isort..."
-	poetry run isort .
-	@echo "Running flake8..."
-	poetry run flake8 .
+	@echo "Running ruff format..."
+	poetry run ruff format .
+	@echo "Running ruff check..."
+	poetry run ruff check . --fix
 
 test:
 	@echo "Running pytest..."

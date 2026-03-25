@@ -15,10 +15,7 @@ dependencies = [
     "requests (>=2.32.3,<3.0.0)",
     "loguru (>=0.7.3,<0.8.0)",
     "pytest (>=8.3.5,<9.0.0)",
-    "black (>=25.1.0,<26.0.0)",
-    "isort (>=6.0.1,<7.0.0)",
-    "flake8 (>=7.1.2,<8.0.0)",
-    "flake8-pyproject (>=1.0.0,<2.0.0)",
+    "ruff (>=0.9.0,<1.0.0)",
     "pytz (>=2025.1,<2026.0)",
     "matplotlib (>=3.9.0,<4.0.0)",
     "numpy (>=1.26.0,<2.0.0)",
@@ -37,39 +34,23 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 packages = [{include = "src"}]
 
-[tool.black]
+[tool.ruff]
+target-version = "py312"
 line-length = 120
-target-version = ['py312']
-include = '\.pyi?$'
-extend-exclude = '''
-# A regex preceded with ^/ will apply only to files and directories
-# in the root of the project.
-^/docs
-'''
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-line_length = 88
-skip = ["docs", ".venv"]
-
-[tool.flake8]
-max-line-length = 120
-extend-ignore = "E203"
 exclude = [
     ".git",
     "__pycache__",
     "build",
     "dist",
     "docs",
-    ".venv"
+    ".venv",
 ]
-per-file-ignores = [
-    "__init__.py: F401",
-    "scripts/*.py: E402",
-    "src/analysis/visualization.py: E402"
-]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+ignore = ["E203"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"scripts/*.py" = ["E402"]
+"src/analysis/visualization.py" = ["E402"]

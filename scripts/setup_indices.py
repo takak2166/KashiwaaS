@@ -4,6 +4,7 @@ Setup Elasticsearch Indices
 
 This script sets up Elasticsearch index templates and indices for Slack messages.
 """
+
 import argparse
 import sys
 from pathlib import Path
