@@ -25,7 +25,7 @@ poetry install && poetry run python -m src.cli   # app entry (local)
 docker-compose up -d                                 # full stack
 
 # Testing / lint
-make test && make lint                               # pytest; black, isort, flake8
+make test && make lint                               # pytest; ruff
 
 # Docs
 README.md (setup & ops), docs/design.md (design)

@@ -173,7 +173,7 @@ class Alerter:
         if level == AlertLevel.CRITICAL:
             mentions += " <!channel>"
 
-        count_str = f" (occurred {count+1} times)" if count > 0 else ""
+        count_str = f" (occurred {count + 1} times)" if count > 0 else ""
 
         formatted_message = f"{level_emoji} *{title}*{mentions}{count_str}\n"
         formatted_message += f"*Time:* {timestamp}\n"
@@ -200,7 +200,7 @@ class Alerter:
             title = f"{level.name} Alert"
 
         if count > 0:
-            title = f"{title} (occurred {count+1} times)"
+            title = f"{title} (occurred {count + 1} times)"
 
         blocks = [
             {

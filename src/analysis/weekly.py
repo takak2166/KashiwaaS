@@ -62,7 +62,7 @@ def get_weekly_stats(
                 fallback_channel_name=fallback_channel_name,
             )
             daily_stats.append(stats)
-            logger.info(f"Got daily stats for {current_date.strftime('%Y-%m-%d')}: " f"{stats.message_count} messages")
+            logger.info(f"Got daily stats for {current_date.strftime('%Y-%m-%d')}: {stats.message_count} messages")
         except Exception as e:
             error_msg = f"Failed to get daily stats for {current_date.strftime('%Y-%m-%d')}: {e}"
             logger.error(error_msg)

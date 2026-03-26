@@ -55,7 +55,7 @@ class SlackClient:
             try:
                 channel_info = self.get_channel_info()
                 logger.info(
-                    f"Successfully validated channel: " f"{channel_info.get('name', 'unknown')} ({self.channel_id})"
+                    f"Successfully validated channel: {channel_info.get('name', 'unknown')} ({self.channel_id})"
                 )
             except Exception as e:
                 logger.warning(f"Channel validation failed: {e}")

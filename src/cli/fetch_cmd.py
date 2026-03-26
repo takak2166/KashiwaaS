@@ -211,9 +211,7 @@ def _store_messages_batch(
 ) -> None:
     try:
         result = es_client.index_slack_messages(channel_name, messages, batch_size)
-        logger.info(
-            f"Indexed {result.get('success', 0)} messages in Elasticsearch, " f"{result.get('failed', 0)} failed"
-        )
+        logger.info(f"Indexed {result.get('success', 0)} messages in Elasticsearch, {result.get('failed', 0)} failed")
         if result.get("failed", 0) > 0:
             alert(
                 message=f"Failed to index {result.get('failed', 0)} messages in Elasticsearch",
