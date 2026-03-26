@@ -115,6 +115,7 @@ jobs:
           rm .env
 
   notify-failure:
+    environment: notification
     needs: [lint_and_test, dry-run]
     if: failure()
     runs-on: ubuntu-latest
