@@ -3,6 +3,9 @@
   "extends": [
     "config:base"
   ],
+  "pyenv": {
+    "enabled": false
+  },
   "packageRules": [
     {
       "matchManagers": ["poetry"],
@@ -11,6 +14,13 @@
       "groupSlug": "poetry-deps",
       "automerge": true,
       "automergeType": "branch"
+    },
+    {
+      "description": "Single PR for Python runtime bumps across .python-version and CI (same datasource)",
+      "matchDatasources": ["python-version"],
+      "matchPackageNames": ["python"],
+      "groupName": "python",
+      "groupSlug": "python"
     }
   ],
   "schedule": ["before 3am on monday"],
@@ -23,12 +33,21 @@
   "prConcurrentLimit": 10,
   "regexManagers": [
     {
+      "description": "pyenv file: track python.org releases (not Docker Hub tags)",
+      "fileMatch": ["(^|/)\\.python-version$"],
+      "matchStrings": ["^(?<currentValue>\\d+\\.\\d+(?:\\.\\d+)?)\\s*$"],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "python-version",
+      "versioningTemplate": "python"
+    },
+    {
       "fileMatch": [".github/workflows/.*\\.ya?ml$"],
       "matchStrings": [
-        "python-version: ['\"]?(?<currentValue>\\d+\\.\\d+)['\"]?"
+        "python-version:\\s*['\"]?(?<currentValue>\\d+\\.\\d+(?:\\.\\d+)?)['\"]?"
       ],
       "depNameTemplate": "python",
-      "datasourceTemplate": "python-version"
+      "datasourceTemplate": "python-version",
+      "versioningTemplate": "python"
     },
     {
       "fileMatch": ["^Makefile$", "^Dockerfile$", ".github/workflows/.*\\.ya?ml$"],
@@ -38,5 +57,5 @@
       "depNameTemplate": "poetry",
       "datasourceTemplate": "pypi"
     }
-  ]  
-} 
+  ]
+}
