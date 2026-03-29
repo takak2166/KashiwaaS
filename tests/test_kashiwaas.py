@@ -7,6 +7,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 from src.bot.kashiwaas import (
+    POLL_PROGRESS_POST_INTERVAL_SECONDS,
     SLACK_MARKDOWN_BLOCK_TEXT_MAX,
     _extract_question,
     _fallback_notification_text,
@@ -14,7 +15,7 @@ from src.bot.kashiwaas import (
     _split_message,
 )
 from src.bot.thread_store import ThreadStore
-from src.cursor.client import AgentMessage, AgentResult, AgentStatus
+from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorTimeoutError
 
 
 class TestExtractQuestion:
@@ -256,6 +257,91 @@ class TestHandleMention:
 
         ack.assert_called_once()
         client.reactions_add.assert_any_call(channel="C123", timestamp="1234.5678", name="eyes")
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
+    @patch("src.bot.kashiwaas.thread_store")
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_poll_progress_posts_thread_message(self, mock_thread_class, mock_store, _mock_dup):
+        """While polling, on_poll posts periodic progress text to the thread."""
+        from src.bot.kashiwaas import _handle_mention
+
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+
+            def start():
+                if target:
+                    target()
+
+            mock_thread.start.side_effect = start
+            return mock_thread
+
+        mock_thread_class.side_effect = run_target_immediately
+
+        mock_store.get.return_value = None
+        event = {
+            "text": "<@U12345> What is Python?",
+            "channel": "C123",
+            "ts": "1234.5678",
+        }
+        ack = MagicMock()
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+
+        def ask_impl(q, expected_previous_message_id=None, on_poll=None):
+            if on_poll:
+                on_poll(float(POLL_PROGRESS_POST_INTERVAL_SECONDS))
+            return AgentResult(
+                agent_id="agent_1",
+                status=AgentStatus.FINISHED,
+                messages=[AgentMessage(id="m1", type="assistant_message", text="ok")],
+            )
+
+        cursor_client.ask.side_effect = ask_impl
+
+        _handle_mention(ack, event, say, client, cursor_client)
+
+        assert cursor_client.ask.call_count == 1
+        assert cursor_client.ask.call_args[1].get("on_poll") is not None
+        texts = [c[1].get("text", "") for c in say.call_args_list if len(c) > 1]
+        assert any("Still generating" in t for t in texts)
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
+    @patch("src.bot.kashiwaas.thread_store")
+    @patch("src.bot.kashiwaas.threading.Thread")
+    def test_cursor_timeout_says_poll_timeout_hint(self, mock_thread_class, mock_store, _mock_dup):
+        from src.bot.kashiwaas import _handle_mention
+
+        def run_target_immediately(*args, **kwargs):
+            target = kwargs.get("target")
+            mock_thread = MagicMock()
+
+            def start():
+                if target:
+                    target()
+
+            mock_thread.start.side_effect = start
+            return mock_thread
+
+        mock_thread_class.side_effect = run_target_immediately
+
+        mock_store.get.return_value = None
+        event = {
+            "text": "<@U12345> What is Python?",
+            "channel": "C123",
+            "ts": "1234.5678",
+        }
+        ack = MagicMock()
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+        cursor_client.ask.side_effect = CursorTimeoutError("timeout")
+
+        _handle_mention(ack, event, say, client, cursor_client)
+
+        texts = [c[1].get("text", "") for c in say.call_args_list if len(c) > 1]
+        assert any("poll timeout" in t.lower() for t in texts)
 
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.thread_store")

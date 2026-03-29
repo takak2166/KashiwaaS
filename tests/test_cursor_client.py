@@ -238,6 +238,56 @@ class TestCursorClient:
         with pytest.raises(CursorTimeoutError):
             cursor_client.poll_until_complete("bc_abc123")
 
+    @patch("src.cursor.client.time.sleep")
+    @patch("src.cursor.client.requests.request")
+    def test_poll_until_complete_calls_on_poll(self, mock_request, mock_sleep):
+        """on_poll receives cumulative elapsed seconds after each non-terminal wait."""
+        running = MagicMock()
+        running.ok = True
+        running.status_code = 200
+        running.content = b"{}"
+        running.json.return_value = {"id": "bc_x", "status": "RUNNING"}
+        finished = MagicMock()
+        finished.ok = True
+        finished.status_code = 200
+        finished.content = b"{}"
+        finished.json.return_value = {"id": "bc_x", "status": "FINISHED"}
+        mock_request.side_effect = [running, running, finished]
+
+        client = CursorClient(
+            api_key="k",
+            source_repository="https://github.com/t/r",
+            poll_interval=1,
+            poll_timeout=30,
+        )
+        seen: list[float] = []
+
+        def on_poll(elapsed: float) -> None:
+            seen.append(elapsed)
+
+        status = client.poll_until_complete("bc_x", on_poll=on_poll)
+        assert status == AgentStatus.FINISHED
+        assert seen == [1.0, 2.0]
+
+    @patch("src.cursor.client.requests.request")
+    def test_poll_until_complete_terminal_skips_on_poll(self, mock_request, cursor_client):
+        """When status is terminal on first poll, on_poll is never called."""
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b"{}"
+        mock_response.json.return_value = {"id": "bc_abc123", "status": "FINISHED"}
+        mock_request.return_value = mock_response
+
+        called = []
+
+        def on_poll(_elapsed: float) -> None:
+            called.append(True)
+
+        status = cursor_client.poll_until_complete("bc_abc123", on_poll=on_poll)
+        assert status == AgentStatus.FINISHED
+        assert called == []
+
     def test_get_latest_assistant_message(self, cursor_client):
         # API returns chronological (oldest first): latest assistant is last in list
         messages = [

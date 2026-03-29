@@ -15,6 +15,9 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Default for CURSOR_POLL_TIMEOUT / CursorClient.poll_timeout (seconds).
+DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS = 600
+
 
 class ConfigError(ValueError):
     """Raised when required configuration is missing or invalid."""
@@ -66,7 +69,7 @@ class CursorConfig:
     source_repository: str = "https://github.com/takak2166/KashiwaaS"
     source_ref: str = "main"
     poll_interval: int = 5
-    poll_timeout: int = 300
+    poll_timeout: int = DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS
     model: Optional[str] = "composer-2"
     conversation_retry_max_retries: int = 4
     conversation_retry_delay_seconds: float = 1.5
@@ -178,7 +181,7 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             or "https://github.com/takak2166/KashiwaaS",
             source_ref=_get_str(e, "CURSOR_SOURCE_REF", "main") or "main",
             poll_interval=_get_int(e, "CURSOR_POLL_INTERVAL", 5),
-            poll_timeout=_get_int(e, "CURSOR_POLL_TIMEOUT", 300),
+            poll_timeout=_get_int(e, "CURSOR_POLL_TIMEOUT", DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS),
             model=_get_str(e, "CURSOR_MODEL", "composer-2"),
             conversation_retry_max_retries=conv_max,
             conversation_retry_delay_seconds=conv_delay,
