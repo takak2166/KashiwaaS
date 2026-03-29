@@ -70,7 +70,7 @@ docker-compose exec app poetry run python -m src.cli fetch --days DAYS
 
 ## Configuration
 
-Load settings via `apply_dotenv()` + `load_config()` at CLI/bot entrypoints (no import-time global config object). See `docs/design.md` (設定の読み込み).
+Load settings via `apply_dotenv()` + `load_config()` at CLI/bot entrypoints (no import-time global config object). See `docs/runtime-config.md` (設定の読み込み).
 
 ### Environment Variables
 - `SLACK_API_TOKEN`: Slack API token
@@ -214,7 +214,7 @@ docker-compose exec app poetry run python -m src.cli fetch --days DAYS
 
 ## 設定
 
-CLI およびボットのエントリポイントで `apply_dotenv()` と `load_config()` により設定を読み込みます（モジュール import 時にグローバルな `config` オブジェクトは生成しません）。詳細は `docs/design.md` の「設定の読み込み」を参照してください。
+CLI およびボットのエントリポイントで `apply_dotenv()` と `load_config()` により設定を読み込みます（モジュール import 時にグローバルな `config` オブジェクトは生成しません）。詳細は `docs/runtime-config.md` の「設定の読み込み（AppConfig）」を参照してください。
 
 ### 環境変数
 - `SLACK_API_TOKEN`: Slack APIトークン

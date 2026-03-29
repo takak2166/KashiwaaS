@@ -6,6 +6,7 @@
 
 - **Do NOT maintain backward compatibility or fallback** unless explicitly requested. Break things boldly.
 - **Line budget:** Non-blank, non-HTML-comment lines = **instruction body** (target **30–50**). **Whole file** ≤**75** lines (includes blanks, fences, HTML notes). Offload depth to `docs/`.
+- **Plan-first:** Non-trivial work (multi-file, behavior/config/bot/hooks/CI changes): write a plan first; **do not edit files** until the user approves. **Plan optional** only for trivial fixes (typos, comments, obvious nits).
 
 ---
 
@@ -28,7 +29,7 @@ docker-compose up -d                                 # full stack
 make test && make lint                               # pytest; ruff
 
 # Docs
-README.md (setup & ops), docs/design.md (design)
+README.md (setup & ops), docs/README.md (design index)
 ```
 
 ---

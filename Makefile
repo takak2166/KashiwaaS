@@ -1,4 +1,4 @@
-.PHONY: setup install lint test
+.PHONY: setup install lint test e2e-smoke
 
 setup:
 	@echo "Setting up development environment..."
@@ -19,3 +19,7 @@ lint:
 test:
 	@echo "Running pytest..."
 	poetry run pytest
+
+e2e-smoke:
+	@echo "Running Docker Compose E2E smoke (see docs/e2e.md)..."
+	bash scripts/e2e_compose_smoke.sh
