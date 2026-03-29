@@ -158,10 +158,13 @@ def _make_poll_progress_notifier(say, thread_ts: str):
     def _on_poll(elapsed: float) -> None:
         nonlocal next_at
         while elapsed >= next_at:
-            say(
-                text=("Still generating a response... (This may take several minutes for complex tasks.)"),
-                thread_ts=thread_ts,
-            )
+            try:
+                say(
+                    text=("Still generating a response... (This may take several minutes for complex tasks.)"),
+                    thread_ts=thread_ts,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to post poll progress (thread_ts={thread_ts}): {e}")
             next_at += POLL_PROGRESS_POST_INTERVAL_SECONDS
 
     return _on_poll

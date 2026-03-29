@@ -134,6 +134,29 @@ class TestMarkdownBlockHelpers:
         assert say.call_count == 2
 
 
+class TestPollProgressNotifier:
+    """_make_poll_progress_notifier: best-effort Slack posts."""
+
+    def test_say_failure_does_not_propagate(self):
+        from src.bot.kashiwaas import (
+            POLL_PROGRESS_POST_INTERVAL_SECONDS,
+            _make_poll_progress_notifier,
+        )
+
+        calls: list[int] = []
+
+        def say(**_kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("slack api")
+
+        on_poll = _make_poll_progress_notifier(say, "1.0")
+        interval = float(POLL_PROGRESS_POST_INTERVAL_SECONDS)
+        on_poll(interval)
+        on_poll(interval * 2)
+        assert len(calls) == 2
+
+
 class TestThreadStore:
     """Tests for ThreadStore class"""
 
