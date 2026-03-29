@@ -48,6 +48,9 @@ _processed_events_lock = threading.Lock()
 
 thread_store = ThreadStore()
 
+# Post "still working" in the Slack thread while the Cursor agent runs.
+POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
+
 THREAD_LOCK_TTL_SECONDS = 86400  # 24 hours
 
 
@@ -148,6 +151,25 @@ def _remove_reaction(client, channel: str, timestamp: str, name: str) -> None:
         logger.warning(f"Failed to remove reaction '{name}': {e}")
 
 
+def _make_poll_progress_notifier(say, thread_ts: str):
+    """Return on_poll(elapsed) that posts to the thread at fixed intervals."""
+    next_at = float(POLL_PROGRESS_POST_INTERVAL_SECONDS)
+
+    def _on_poll(elapsed: float) -> None:
+        nonlocal next_at
+        while elapsed >= next_at:
+            try:
+                say(
+                    text=("Still generating a response... (This may take several minutes for complex tasks.)"),
+                    thread_ts=thread_ts,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to post poll progress (thread_ts={thread_ts}): {e}")
+            next_at += POLL_PROGRESS_POST_INTERVAL_SECONDS
+
+    return _on_poll
+
+
 def _is_duplicate_event(channel: str, event_ts: str) -> bool:
     """Return True if we already processed this event (idempotency)."""
     key = (channel, event_ts)
@@ -189,16 +211,24 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
         with _thread_ts_lock(thread_ts):
             try:
                 agent_id = thread_store.get(thread_ts)
+                on_poll = _make_poll_progress_notifier(say, thread_ts)
 
                 expected_previous_message_id = thread_store.get_last_message_id(thread_ts)
                 if agent_id:
                     logger.info(f"Followup in thread {thread_ts} -> agent {agent_id}")
                     result = cursor_client.followup(
-                        agent_id, question, expected_previous_message_id=expected_previous_message_id
+                        agent_id,
+                        question,
+                        expected_previous_message_id=expected_previous_message_id,
+                        on_poll=on_poll,
                     )
                 else:
                     logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
-                    result = cursor_client.ask(question, expected_previous_message_id=expected_previous_message_id)
+                    result = cursor_client.ask(
+                        question,
+                        expected_previous_message_id=expected_previous_message_id,
+                        on_poll=on_poll,
+                    )
                     if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
                         thread_store.set(thread_ts, result.agent_id)
 
@@ -279,7 +309,10 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(
-                    text="Response generation timed out. Please shorten your question or try again.",
+                    text=(
+                        "Response generation timed out (agent did not finish within the poll timeout). "
+                        "Please shorten your question, split the task, or ask an admin to raise CURSOR_POLL_TIMEOUT."
+                    ),
                     thread_ts=thread_ts,
                 )
             except CursorAPIError as e:

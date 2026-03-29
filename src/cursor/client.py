@@ -7,10 +7,11 @@ import time
 from base64 import b64encode
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
+from src.utils.config import DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -69,7 +70,7 @@ class CursorClient:
         source_repository: str,
         source_ref: str = "main",
         poll_interval: int = 5,
-        poll_timeout: int = 300,
+        poll_timeout: int = DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS,
         model: Optional[str] = None,
         conversation_retry_max_retries: int = 4,
         conversation_retry_delay_seconds: float = 1.5,
@@ -209,9 +210,19 @@ class CursorClient:
         self._request("POST", f"/v0/agents/{agent_id}/followup", json=payload)
         logger.info(f"Sent followup to agent {agent_id}: {prompt[:80]}...")
 
-    def poll_until_complete(self, agent_id: str) -> AgentStatus:
+    def poll_until_complete(
+        self,
+        agent_id: str,
+        *,
+        on_poll: Optional[Callable[[float], None]] = None,
+    ) -> AgentStatus:
         """
         Poll the agent status until it reaches a terminal state or times out.
+
+        Args:
+            agent_id: Cloud agent id.
+            on_poll: Called after each non-terminal poll wait with cumulative elapsed
+                seconds (after ``poll_interval`` sleeps). Omitted or ``None`` skips.
 
         Returns:
             The final AgentStatus.
@@ -219,14 +230,16 @@ class CursorClient:
         Raises:
             CursorTimeoutError: If polling exceeds the timeout.
         """
-        elapsed = 0
+        elapsed = 0.0
         while elapsed < self.poll_timeout:
             status = self.get_agent_status(agent_id)
             if status in TERMINAL_STATUSES:
                 logger.info(f"Agent {agent_id} reached terminal status: {status.value}")
                 return status
             time.sleep(self.poll_interval)
-            elapsed += self.poll_interval
+            elapsed += float(self.poll_interval)
+            if on_poll is not None:
+                on_poll(elapsed)
 
         raise CursorTimeoutError(f"Agent {agent_id} did not complete within {self.poll_timeout}s")
 
@@ -234,12 +247,13 @@ class CursorClient:
         self,
         prompt: str,
         expected_previous_message_id: Optional[str] = None,
+        on_poll: Optional[Callable[[float], None]] = None,
     ) -> AgentResult:
         """
         Create an agent, wait for completion, and return the conversation.
         """
         agent_id = self.create_agent(prompt)
-        status = self.poll_until_complete(agent_id)
+        status = self.poll_until_complete(agent_id, on_poll=on_poll)
         if status == AgentStatus.FINISHED:
             messages = self.get_conversation_after_complete(
                 agent_id, expected_previous_message_id=expected_previous_message_id
@@ -254,12 +268,13 @@ class CursorClient:
         agent_id: str,
         prompt: str,
         expected_previous_message_id: Optional[str] = None,
+        on_poll: Optional[Callable[[float], None]] = None,
     ) -> AgentResult:
         """
         Send a follow-up to an existing agent and return updated conversation.
         """
         self.send_followup(agent_id, prompt)
-        status = self.poll_until_complete(agent_id)
+        status = self.poll_until_complete(agent_id, on_poll=on_poll)
         if status == AgentStatus.FINISHED:
             messages = self.get_conversation_after_complete(
                 agent_id, expected_previous_message_id=expected_previous_message_id
