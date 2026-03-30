@@ -49,8 +49,8 @@ def _deny_secret_path(path: str) -> str | None:
         return "edits under .github/secrets are blocked"
     if ".github/secrets" in lowered:
         return "edits under .github/secrets are blocked"
-    base = p.rsplit("/", 1)[-1]
-    if base == ".env" or base.startswith(".env.") and base != ".env.example":
+    base = p.rsplit("/", 1)[-1].lower()
+    if base == ".env" or (base.startswith(".env.") and base != ".env.example"):
         return "editing .env files is blocked (use .env.example or user env)"
     if lowered.endswith("id_rsa") or lowered.endswith(".pem"):
         return "editing key material paths is blocked"

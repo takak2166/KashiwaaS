@@ -1,3 +1,4 @@
+// This file is technically unnecessary because .claude/settings.json takes precedence.
 {
   "version": 1,
   "hooks": {
