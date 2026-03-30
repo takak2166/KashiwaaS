@@ -45,6 +45,16 @@ def test_bash_allows_safe_command() -> None:
     assert out["permission"] == "allow"
 
 
+def test_bash_allows_force_with_lease() -> None:
+    out = _run(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git push --force-with-lease"},
+        }
+    )
+    assert out["permission"] == "allow"
+
+
 @pytest.mark.parametrize(
     ("tool_name", "tool_input"),
     [

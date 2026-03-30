@@ -9,7 +9,8 @@ import sys
 from typing import Any
 
 DENY_SHELL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"(?i)git\s+push\s+--force"), "git push --force is blocked"),
+    # (?!-) so --force-with-lease is not matched as --force
+    (re.compile(r"(?i)git\s+push\s+--force(?!-)"), "git push --force is blocked"),
     (re.compile(r"(?i)git\s+push\s+-f\b"), "git push -f is blocked"),
     (re.compile(r"(?i)\brm\s+(-rf\b|-fr\b)"), "rm -rf / rm -fr is blocked"),  # noqa: E501
     (re.compile(r"(?i)--no-verify\b"), "--no-verify is blocked"),

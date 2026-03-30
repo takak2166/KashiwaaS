@@ -20,7 +20,7 @@ or:
 bash scripts/e2e_compose_smoke.sh
 ```
 
-Requires Docker and Docker Compose. On exit, Compose is torn down and the generated `.env` is removed.
+Requires Docker and Docker Compose. On exit, Compose is torn down. If `.env` already existed before the run, it is restored; otherwise the generated smoke `.env` is removed.
 
 ## Step summary
 
@@ -30,7 +30,7 @@ Requires Docker and Docker Compose. On exit, Compose is torn down and the genera
 4. Run `scripts/setup_indices.py` and `import_kibana_objects.py`
 5. `python -m src.cli fetch --dummy`
 6. `python -m src.cli report` with `--type daily` / `--type weekly` and `--dry-run`
-7. Clean up: `docker compose down --rmi all --volumes --remove-orphans` and remove `.env`
+7. Clean up: `docker compose down --rmi all --volumes --remove-orphans`; restore a pre-existing `.env` if the script had backed it up, else delete the generated `.env`
 
 ## Selenium / Kibana
 

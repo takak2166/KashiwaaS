@@ -5,6 +5,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# If a real .env exists, stash it so the smoke heredoc does not destroy it; restore in cleanup.
+_ENV_BACKUP=""
+if [[ -f .env ]]; then
+  _ENV_BACKUP="$(mktemp)"
+  cp .env "$_ENV_BACKUP"
+fi
+
 # Pick the same compose file for teardown that exists on disk (v1 name vs Compose v2 `compose.yml`).
 _resolve_compose_file() {
   local f
@@ -22,7 +29,11 @@ cleanup() {
   if compose_file=$(_resolve_compose_file); then
     docker compose -f "$compose_file" down --rmi all --volumes --remove-orphans 2>/dev/null || true
   fi
-  rm -f .env
+  if [[ -n "${_ENV_BACKUP}" ]] && [[ -f "${_ENV_BACKUP}" ]]; then
+    mv "$_ENV_BACKUP" .env
+  else
+    rm -f .env
+  fi
 }
 trap cleanup EXIT
 
