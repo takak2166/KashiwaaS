@@ -66,7 +66,8 @@ def main() -> None:
 
     tool = str(payload.get("tool_name") or "")
 
-    if tool == "Shell":
+    # Cursor uses "Shell"; Claude Code uses "Bash" for shell invocations.
+    if tool in ("Shell", "Bash"):
         cmd = _shell_command(payload)
         for pat, msg in DENY_SHELL_PATTERNS:
             if pat.search(cmd):
@@ -83,7 +84,8 @@ def main() -> None:
         print(json.dumps({"permission": "allow"}))
         return
 
-    if tool in ("Write", "StrReplace", "Delete", "NotebookEdit"):
+    # "Edit" is Claude Code; others match Cursor tool names.
+    if tool in ("Write", "Edit", "StrReplace", "Delete", "NotebookEdit"):
         ti = payload.get("tool_input")
         for s in _iter_strings(ti):
             if len(s) > 4096:
