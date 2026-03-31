@@ -1,15 +1,23 @@
+// This file is technically unnecessary because .claude/settings.json takes precedence.
 {
   "version": 1,
   "hooks": {
+    "preToolUse": [
+      {
+        "command": ".claude/hooks/pre-tool-use-guard.sh",
+        "timeout": 30,
+        "failClosed": true
+      }
+    ],
     "afterFileEdit": [
       {
-        "command": ".cursor/hooks/after-file-edit-lint.sh",
+        "command": ".claude/hooks/after-file-edit-lint.sh",
         "timeout": 120
       }
     ],
     "stop": [
       {
-        "command": ".cursor/hooks/stop-run-tests.sh",
+        "command": ".claude/hooks/stop-run-tests.sh",
         "timeout": 600,
         "failClosed": true
       }
