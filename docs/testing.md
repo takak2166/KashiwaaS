@@ -37,7 +37,7 @@
 ## Local and CI
 
 - Local: `make test` (`pytest`), `make lint` (`ruff`) — [Makefile](../Makefile)
-- PRs to `main`: GitHub Actions runs `lint_and_test` (`poetry run make lint` / `make test`) and `dry-run` (Docker Compose) — [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+- PRs to `main`: GitHub Actions runs `lint_and_test` (`make lint` / `make test`) and `dry-run` (Docker Compose) — [.github/workflows/ci.yml](../.github/workflows/ci.yml)
 
 ## Cursor agent hooks
 

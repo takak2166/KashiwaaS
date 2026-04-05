@@ -26,7 +26,7 @@ jobs:
         run: poetry install --no-interaction --no-ansi
 
       - name: Run linting
-        run: poetry run make lint
+        run: make lint
         env:
           # Minimal env so load_config() does not get None for required fields when tests import app modules
           SLACK_API_TOKEN: ""
@@ -37,7 +37,7 @@ jobs:
           SELENIUM_HOST: ""
 
       - name: Run tests
-        run: poetry run make test
+        run: make test
         env:
           SLACK_API_TOKEN: ""
           SLACK_CHANNEL_ID: ""
