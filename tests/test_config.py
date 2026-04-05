@@ -12,6 +12,7 @@ from src.utils.config import (
     ElasticsearchConfig,
     KibanaConfig,
     SlackConfig,
+    ValkeyConfig,
     load_config,
     validate_cli_config,
 )
@@ -27,6 +28,7 @@ def _minimal_cfg() -> AppConfig:
         alert=AlertConfig(),
         cursor=CursorConfig(),
         bot=BotConfig(),
+        valkey=ValkeyConfig(url="redis://localhost:6379/0"),
     )
 
 

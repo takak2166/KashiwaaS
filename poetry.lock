@@ -435,6 +435,31 @@ requests = ["requests (>=2.4.0,!=2.32.2,<3.0.0)"]
 vectorstore-mmr = ["numpy (>=1)", "simsimd (>=3)"]
 
 [[package]]
+name = "fakeredis"
+version = "2.34.1"
+description = "Python implementation of redis API, can be used for testing purposes."
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "sys_platform == \"win32\" or sys_platform == \"emscripten\" or sys_platform != \"win32\" and sys_platform != \"emscripten\""
+files = [
+    {file = "fakeredis-2.34.1-py3-none-any.whl", hash = "sha256:0107ec99d48913e7eec2a5e3e2403d1bd5f8aa6489d1a634571b975289c48f12"},
+    {file = "fakeredis-2.34.1.tar.gz", hash = "sha256:4ff55606982972eecce3ab410e03d746c11fe5deda6381d913641fbd8865ea9b"},
+]
+
+[package.dependencies]
+redis = {version = ">=4.3", markers = "python_version > \"3.8\""}
+sortedcontainers = ">=2"
+
+[package.extras]
+bf = ["pyprobables (>=0.6)"]
+cf = ["pyprobables (>=0.6)"]
+json = ["jsonpath-ng (>=1.6)"]
+lua = ["lupa (>=2.1)"]
+probabilistic = ["pyprobables (>=0.6)"]
+valkey = ["valkey (>=6) ; python_version >= \"3.8\""]
+
+[[package]]
 name = "fonttools"
 version = "4.62.1"
 description = "Tools to manipulate font files"
@@ -1391,6 +1416,27 @@ files = [
 ]
 
 [[package]]
+name = "redis"
+version = "7.4.0"
+description = "Python client for Redis database and key-value store"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "sys_platform == \"win32\" or sys_platform == \"emscripten\" or sys_platform != \"win32\" and sys_platform != \"emscripten\""
+files = [
+    {file = "redis-7.4.0-py3-none-any.whl", hash = "sha256:a9c74a5c893a5ef8455a5adb793a31bb70feb821c86eccb62eebef5a19c429ec"},
+    {file = "redis-7.4.0.tar.gz", hash = "sha256:64a6ea7bf567ad43c964d2c30d82853f8df927c5c9017766c55a1d1ed95d18ad"},
+]
+
+[package.extras]
+circuit-breaker = ["pybreaker (>=1.4.0)"]
+hiredis = ["hiredis (>=3.2.0)"]
+jwt = ["pyjwt (>=2.9.0)"]
+ocsp = ["cryptography (>=36.0.1)", "pyopenssl (>=20.0.1)", "requests (>=2.31.0)"]
+otel = ["opentelemetry-api (>=1.39.1)", "opentelemetry-exporter-otlp-proto-http (>=1.39.1)", "opentelemetry-sdk (>=1.39.1)"]
+xxhash = ["xxhash (>=3.6.0,<3.7.0)"]
+
+[[package]]
 name = "requests"
 version = "2.33.0"
 description = "Python HTTP for Humans."
@@ -1640,6 +1686,23 @@ socks = ["pysocks (>=1.5.6,!=1.5.7,<2.0)"]
 zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 
 [[package]]
+name = "valkey"
+version = "6.1.1"
+description = "Python client for Valkey forked from redis-py"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "sys_platform == \"win32\" or sys_platform == \"emscripten\" or sys_platform != \"win32\" and sys_platform != \"emscripten\""
+files = [
+    {file = "valkey-6.1.1-py3-none-any.whl", hash = "sha256:e2691541c6e1503b53c714ad9a35551ac9b7c0bbac93865f063dbc859a46de92"},
+    {file = "valkey-6.1.1.tar.gz", hash = "sha256:5880792990c6c2b5eb604a5ed5f98f300880b6dd92d123819b66ed54bb259731"},
+]
+
+[package.extras]
+libvalkey = ["libvalkey (>=4.0.1)"]
+ocsp = ["cryptography (>=36.0.1)", "pyopenssl (==23.2.1)", "requests (>=2.31.0)"]
+
+[[package]]
 name = "websocket-client"
 version = "1.9.0"
 description = "WebSocket client for Python with low level API options"
@@ -1692,4 +1755,4 @@ h11 = ">=0.16.0,<1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "b6782dd2ff319827b9c7fec34a4458a4c054c6016ef6f39ebc1ac7d233deb94f"
+content-hash = "87c0cfe8ebeac390c8824f263aa75d4bdabf206069b9e2aee8caeb4d7a67a458"

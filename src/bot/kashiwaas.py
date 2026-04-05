@@ -46,8 +46,6 @@ PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
 _processed_events: dict[tuple[str, str], float] = {}
 _processed_events_lock = threading.Lock()
 
-thread_store = ThreadStore()
-
 # Post "still working" in the Slack thread while the Cursor agent runs.
 POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
 
@@ -120,10 +118,11 @@ def create_app(cfg: AppConfig) -> App:
         conversation_retry_max_retries=cfg.cursor.conversation_retry_max_retries,
         conversation_retry_delay_seconds=cfg.cursor.conversation_retry_delay_seconds,
     )
+    thread_store = ThreadStore(cfg.valkey)
 
     @app.event("app_mention")
     def handle_mention(ack, event, say, client):
-        _handle_mention(ack, event, say, client, cursor_client)
+        _handle_mention(ack, event, say, client, cursor_client, thread_store)
 
     @app.event("message")
     def handle_message_events(body, logger):
@@ -184,7 +183,7 @@ def _is_duplicate_event(channel: str, event_ts: str) -> bool:
         return False
 
 
-def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
+def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread_store: ThreadStore):
     """Process an app_mention event."""
     ack()
 
