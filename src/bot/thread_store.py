@@ -61,35 +61,43 @@ class ThreadStore:
     def get_last_message_id(self, thread_ts: str) -> Optional[str]:
         """Return the last assistant message id for this thread, or None."""
         key = self._key(thread_ts)
-        if not self._client.exists(key):
+        agent_id, last_id = self._client.hmget(key, [_F_AGENT_ID, _F_LAST_MESSAGE_ID])
+        if agent_id is None:
             return None
         self._refresh_ttl(key)
-        return self._client.hget(key, _F_LAST_MESSAGE_ID)
+        return last_id
 
     def set_last_message_id(self, thread_ts: str, message_id: str) -> None:
         """Record the last assistant message id for this thread (for retry detection)."""
         key = self._key(thread_ts)
-        if not self._client.exists(key):
+        if self._client.hget(key, _F_AGENT_ID) is None:
             return
-        self._client.hset(key, _F_LAST_MESSAGE_ID, message_id)
-        self._refresh_ttl(key)
+        pipe = self._client.pipeline()
+        pipe.hset(key, _F_LAST_MESSAGE_ID, message_id)
+        if self._ttl > 0:
+            pipe.expire(key, self._ttl)
+        pipe.execute()
         logger.debug(f"Stored last_message_id for {thread_ts} -> {message_id}")
 
     def get_last_message_fingerprint(self, thread_ts: str) -> Optional[str]:
         """Return the last assistant message fingerprint for this thread, or None."""
         key = self._key(thread_ts)
-        if not self._client.exists(key):
+        agent_id, fp = self._client.hmget(key, [_F_AGENT_ID, _F_LAST_FINGERPRINT])
+        if agent_id is None:
             return None
         self._refresh_ttl(key)
-        return self._client.hget(key, _F_LAST_FINGERPRINT)
+        return fp
 
     def set_last_message_fingerprint(self, thread_ts: str, fingerprint: str) -> None:
         """Record the last assistant message fingerprint for duplicate content detection."""
         key = self._key(thread_ts)
-        if not self._client.exists(key):
+        if self._client.hget(key, _F_AGENT_ID) is None:
             return
-        self._client.hset(key, _F_LAST_FINGERPRINT, fingerprint)
-        self._refresh_ttl(key)
+        pipe = self._client.pipeline()
+        pipe.hset(key, _F_LAST_FINGERPRINT, fingerprint)
+        if self._ttl > 0:
+            pipe.expire(key, self._ttl)
+        pipe.execute()
         logger.debug(f"Stored last_message_fingerprint for {thread_ts}")
 
     def remove(self, thread_ts: str) -> None:
