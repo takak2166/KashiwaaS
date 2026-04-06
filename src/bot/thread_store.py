@@ -103,7 +103,3 @@ class ThreadStore:
     def remove(self, thread_ts: str) -> None:
         """Remove a mapping if it exists."""
         self._client.delete(self._key(thread_ts))
-
-    def __len__(self) -> int:
-        pattern = f"{self._KEY_PREFIX}*"
-        return sum(1 for _ in self._client.scan_iter(match=pattern, count=100))

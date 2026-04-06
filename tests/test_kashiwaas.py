@@ -29,6 +29,12 @@ def _thread_store_for_test(*, thread_ttl_seconds: int = 86400) -> ThreadStore:
     return ThreadStore(cfg, client=fakeredis.FakeRedis(decode_responses=True))
 
 
+def _thread_store_key_count(store: ThreadStore) -> int:
+    """Count thread keys (tests only; avoids O(N) scan_iter on ThreadStore in production code)."""
+    pattern = f"{ThreadStore._KEY_PREFIX}*"
+    return sum(1 for _ in store._client.scan_iter(match=pattern, count=100))
+
+
 class TestExtractQuestion:
     """Tests for _extract_question utility"""
 
@@ -228,16 +234,16 @@ class TestThreadStore:
 
     def test_len(self):
         store = _thread_store_for_test()
-        assert len(store) == 0
+        assert _thread_store_key_count(store) == 0
         store.set("thread_1", "agent_1")
         store.set("thread_2", "agent_2")
-        assert len(store) == 2
+        assert _thread_store_key_count(store) == 2
 
     def test_len_after_expiration(self):
         store = _thread_store_for_test(thread_ttl_seconds=1)
         store.set("thread_1", "agent_1")
         time.sleep(2.0)
-        assert len(store) == 0
+        assert _thread_store_key_count(store) == 0
 
 
 class TestThreadStoreSafe:
