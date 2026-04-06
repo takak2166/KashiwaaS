@@ -7,6 +7,8 @@ import time
 from unittest.mock import MagicMock, patch
 
 import fakeredis
+from redis.exceptions import ResponseError
+from valkey.exceptions import ValkeyError
 
 from src.bot.kashiwaas import (
     POLL_PROGRESS_POST_INTERVAL_SECONDS,
@@ -15,6 +17,7 @@ from src.bot.kashiwaas import (
     _fallback_notification_text,
     _say_markdown_chunks,
     _split_message,
+    _thread_store_safe,
 )
 from src.bot.thread_store import ThreadStore
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorTimeoutError
@@ -235,6 +238,23 @@ class TestThreadStore:
         store.set("thread_1", "agent_1")
         time.sleep(2.0)
         assert len(store) == 0
+
+
+class TestThreadStoreSafe:
+    def test_returns_fn_result(self):
+        assert _thread_store_safe(lambda: "ok") == "ok"
+
+    def test_swallows_valkey_error(self):
+        def boom():
+            raise ValkeyError("boom")
+
+        assert _thread_store_safe(boom, default=42) == 42
+
+    def test_swallows_redis_error(self):
+        def boom():
+            raise ResponseError("boom")
+
+        assert _thread_store_safe(boom) is None
 
 
 class TestHandleMention:

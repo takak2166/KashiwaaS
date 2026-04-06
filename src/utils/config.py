@@ -130,14 +130,20 @@ def _get_int(env: Mapping[str, str], key: str, default: int) -> int:
     raw = env.get(key)
     if raw is None or raw == "":
         return default
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise ConfigError(f"{key} must be a valid integer (got {raw!r})") from e
 
 
 def _get_float(env: Mapping[str, str], key: str, default: float) -> float:
     raw = env.get(key)
     if raw is None or raw == "":
         return default
-    return float(raw)
+    try:
+        return float(raw)
+    except ValueError as e:
+        raise ConfigError(f"{key} must be a valid float (got {raw!r})") from e
 
 
 def load_config(env: Mapping[str, str] | None = None) -> AppConfig:

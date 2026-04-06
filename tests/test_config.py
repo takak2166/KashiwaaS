@@ -50,3 +50,13 @@ def test_load_config_cursor_poll_timeout_default() -> None:
 
 def test_cursor_config_poll_timeout_default() -> None:
     assert CursorConfig().poll_timeout == DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS
+
+
+def test_load_config_invalid_int_raises_config_error() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_POLL_INTERVAL"):
+        load_config({"CURSOR_POLL_INTERVAL": "not-an-int"})
+
+
+def test_load_config_invalid_float_raises_config_error() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_CONVERSATION_RETRY_DELAY_SECONDS"):
+        load_config({"CURSOR_CONVERSATION_RETRY_DELAY_SECONDS": "x"})
