@@ -29,6 +29,7 @@ dependencies = [
     "slack-bolt (>=1.21.0,<2.0.0)",
     "valkey (>=6.0.0,<7.0.0)",
     "fakeredis (>=2.34.0,<3.0.0)",
+    "charset-normalizer (>=3.4.7,<4.0.0)",
 ]
 
 
