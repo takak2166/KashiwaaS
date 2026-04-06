@@ -20,6 +20,8 @@ DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS = 600
 
 # Slack thread -> Cursor agent mapping keys in Valkey (30 days, sliding TTL).
 DEFAULT_VALKEY_THREAD_TTL_SECONDS = 30 * 24 * 3600
+# Upper bound for VALKEY_THREAD_TTL_SECONDS (catch typos; Redis TTL is effectively capped in practice).
+MAX_VALKEY_THREAD_TTL_SECONDS = 10 * 365 * 24 * 3600
 
 
 class ConfigError(ValueError):
@@ -170,6 +172,12 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
 
     valkey_url = _get_str(e, "VALKEY_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0"
     valkey_ttl = _get_int(e, "VALKEY_THREAD_TTL_SECONDS", DEFAULT_VALKEY_THREAD_TTL_SECONDS)
+    if valkey_ttl < 0:
+        raise ConfigError("VALKEY_THREAD_TTL_SECONDS must be >= 0")
+    if valkey_ttl > MAX_VALKEY_THREAD_TTL_SECONDS:
+        raise ConfigError(
+            f"VALKEY_THREAD_TTL_SECONDS must be <= {MAX_VALKEY_THREAD_TTL_SECONDS} (~10 years); got {valkey_ttl}"
+        )
 
     return AppConfig(
         slack=SlackConfig(
