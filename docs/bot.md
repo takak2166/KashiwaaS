@@ -11,3 +11,14 @@ Mentioning `@kashiwaas` in Slack sends the question to the Cursor Cloud Agents A
 
 - `SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`: Socket Mode
 - `CURSOR_API_KEY`, `CURSOR_SOURCE_REPOSITORY`, `CURSOR_POLL_INTERVAL`, `CURSOR_POLL_TIMEOUT`, `CURSOR_MODEL`
+
+## Valkey and `ThreadStore` wiring
+
+- Slack thread (`thread_ts`) → Cursor agent id is stored in **Valkey** (Redis protocol): see `src/bot/thread_store.py`.
+- `VALKEY_URL` and optional `VALKEY_THREAD_TTL_SECONDS` are loaded into `AppConfig.valkey` via `load_config()` (same pattern as other sub-configs; see [runtime-config.md](runtime-config.md)).
+- `create_app(cfg)` in `src/bot/kashiwaas.py` constructs **one** `ThreadStore(cfg.valkey)` per process and passes it into `_handle_mention` (no module-level singleton). Tests inject a `ThreadStore` with `fakeredis` instead of a real Valkey connection.
+
+## Concurrency and horizontal scaling
+
+- `_thread_ts_lock` in `kashiwaas.py` is a **process-local** lock (per `thread_ts`). It serializes handlers for the same thread **within one Python process** only.
+- Valkey state is shared across processes, but **multiple bot replicas** can still handle the same Slack thread concurrently; there is no distributed lock around the handler. For predictable one-thread-at-a-time behavior end-to-end, run **one bot replica** (or accept rare races if you scale the bot horizontally).

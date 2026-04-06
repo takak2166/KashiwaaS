@@ -10,8 +10,10 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+from redis.exceptions import RedisError
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from valkey.exceptions import ValkeyError
 
 from src.bot.alerter import init_alerter
 from src.bot.kashiwaas_mention import (
@@ -45,8 +47,6 @@ _say_markdown_chunks = _slack_md.say_markdown_chunks
 PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
 _processed_events: dict[tuple[str, str], float] = {}
 _processed_events_lock = threading.Lock()
-
-thread_store = ThreadStore()
 
 # Post "still working" in the Slack thread while the Cursor agent runs.
 POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
@@ -101,6 +101,15 @@ def _thread_ts_lock(thread_ts: str):
         lock.release()
 
 
+def _thread_store_safe(fn, /, *, default=None):
+    """Run a ThreadStore op; log and swallow Valkey/redis errors so cleanup paths do not mask prior failures."""
+    try:
+        return fn()
+    except (ValkeyError, RedisError) as e:
+        logger.warning("ThreadStore operation failed (ignored): %s", e)
+        return default
+
+
 def create_app(cfg: AppConfig) -> App:
     """Create and configure the Slack Bolt application from loaded config."""
     if not cfg.bot.bot_token:
@@ -120,10 +129,11 @@ def create_app(cfg: AppConfig) -> App:
         conversation_retry_max_retries=cfg.cursor.conversation_retry_max_retries,
         conversation_retry_delay_seconds=cfg.cursor.conversation_retry_delay_seconds,
     )
+    thread_store = ThreadStore(cfg.valkey)
 
     @app.event("app_mention")
     def handle_mention(ack, event, say, client):
-        _handle_mention(ack, event, say, client, cursor_client)
+        _handle_mention(ack, event, say, client, cursor_client, thread_store)
 
     @app.event("message")
     def handle_message_events(body, logger):
@@ -184,7 +194,7 @@ def _is_duplicate_event(channel: str, event_ts: str) -> bool:
         return False
 
 
-def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
+def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread_store: ThreadStore):
     """Process an app_mention event."""
     ack()
 
@@ -305,7 +315,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                 _add_reaction(client, channel, event_ts, "white_check_mark")
 
             except CursorTimeoutError:
-                thread_store.remove(thread_ts)
+                _thread_store_safe(lambda: thread_store.remove(thread_ts))
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(
@@ -328,14 +338,14 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient):
                         thread_ts=thread_ts,
                     )
                 else:
-                    thread_store.remove(thread_ts)
+                    _thread_store_safe(lambda: thread_store.remove(thread_ts))
                     say(
                         text="Sorry, failed to retrieve a response. Please try again later.",
                         thread_ts=thread_ts,
                     )
             except Exception as e:
                 logger.error(f"Unexpected error handling mention: {e}")
-                thread_store.remove(thread_ts)
+                _thread_store_safe(lambda: thread_store.remove(thread_ts))
                 _remove_reaction(client, channel, event_ts, "eyes")
                 _add_reaction(client, channel, event_ts, "x")
                 say(

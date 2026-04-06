@@ -37,6 +37,11 @@ services:
       - SE_NODE_MAX_SESSIONS=4
     shm_size: '2g'
 
+  valkey:
+    image: valkey/valkey:8
+    ports:
+      - "6379:6379"
+
   bot:
     build: .
     command: ["poetry", "run", "python", "-m", "src.bot.kashiwaas"]
@@ -44,6 +49,8 @@ services:
       - TZ=Asia/Tokyo
     env_file:
       - .env
+    depends_on:
+      - valkey
     restart: unless-stopped
 
 volumes:
