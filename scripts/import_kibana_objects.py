@@ -2,12 +2,17 @@
 import argparse
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
 import jinja2
 import requests
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.es_client.index import get_index_name
 
 # Configure logger
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -68,15 +73,19 @@ def main():
         # Load environment variables
         env = load_env()
 
-        # Set variables
-        env["index_pattern_id"] = f"slack-{env['SLACK_CHANNEL_NAME']}"
-        env["index_pattern_title"] = env["index_pattern_id"]
-        env["lens_id"] = f"tagcloud-{env['SLACK_CHANNEL_NAME']}"
+        # Match Elasticsearch index naming (src.es_client.index.get_index_name)
+        channel = env["SLACK_CHANNEL_NAME"]
+        index_name = get_index_name(channel)
+        slug = index_name.removeprefix("slack-")
+
+        env["index_pattern_id"] = index_name
+        env["index_pattern_title"] = index_name
+        env["lens_id"] = f"tagcloud-{slug}"
         env["lens_title"] = "tag cloud"
-        env["layer_id"] = f"layer-{env['SLACK_CHANNEL_NAME']}"
-        env["dashboard_id"] = f"{env['SLACK_CHANNEL_NAME']}-weekly"
-        env["dashboard_title"] = f"{env['SLACK_CHANNEL_NAME']}'s Dashboard"
-        env["dashboard_description"] = f"message statistics dashboard of {env['SLACK_CHANNEL_NAME']}"
+        env["layer_id"] = f"layer-{slug}"
+        env["dashboard_id"] = f"{slug}-weekly"
+        env["dashboard_title"] = f"{channel}'s Dashboard"
+        env["dashboard_description"] = f"message statistics dashboard of {channel}"
 
         # Set template directory
         templates_dir = Path(__file__).parent.parent / "kibana" / "templates"
