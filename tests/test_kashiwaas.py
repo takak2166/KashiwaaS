@@ -193,6 +193,16 @@ class TestThreadStore:
         store.set("thread_1", "agent_2")
         assert store.get("thread_1") == "agent_2"
 
+    def test_set_sets_ttl_immediately(self):
+        store = _thread_store_for_test(thread_ttl_seconds=10)
+        store.set("thread_1", "agent_1")
+
+        # Regression test: TTL must be set by set() itself (not relying on a separate expire call).
+        key = store._key("thread_1")  # noqa: SLF001 - test internal key builder
+        ttl = store._client.ttl(key)  # noqa: SLF001 - test internal client
+        assert ttl is not None
+        assert ttl > 0
+
     def test_last_message_id(self):
         store = _thread_store_for_test()
         store.set("thread_1", "agent_1")

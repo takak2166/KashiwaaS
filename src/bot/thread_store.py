@@ -53,8 +53,9 @@ class ThreadStore:
         pipe = self._client.pipeline()
         pipe.hset(key, mapping={_F_AGENT_ID: agent_id})
         pipe.hdel(key, _F_LAST_MESSAGE_ID, _F_LAST_FINGERPRINT)
+        if self._ttl > 0:
+            pipe.expire(key, self._ttl)
         pipe.execute()
-        self._refresh_ttl(key)
         logger.debug(f"Stored mapping: {thread_ts} -> {agent_id}")
 
     def get_last_message_id(self, thread_ts: str) -> Optional[str]:
