@@ -23,6 +23,7 @@ def cursor_client():
         source_ref="main",
         poll_interval=0.01,
         poll_timeout=0.05,
+        conversation_text_stabilize_required_matches=1,
     )
 
 
@@ -358,6 +359,55 @@ class TestCursorClient:
         with patch.object(cursor_client, "get_conversation", return_value=messages):
             result = cursor_client.get_conversation_after_complete("agent_1", max_retries=0)
         assert result == messages
+
+    @patch("src.cursor.client.time.sleep")
+    def test_get_conversation_after_complete_stabilizes_assistant_text(self, mock_sleep):
+        """Poll until latest assistant text matches three consecutive fetches."""
+        partial = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="m1", type="assistant_message", text="partial"),
+        ]
+        full = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="m1", type="assistant_message", text="full answer"),
+        ]
+        client = CursorClient(
+            api_key="k",
+            source_repository="https://github.com/t/r",
+            conversation_text_stabilize_interval_seconds=0.01,
+            conversation_text_stabilize_required_matches=3,
+            conversation_text_stabilize_max_rounds=20,
+        )
+        with patch.object(
+            client,
+            "get_conversation",
+            side_effect=[partial, full, full, full],
+        ):
+            result = client.get_conversation_after_complete("agent_1", expected_previous_message_id="prev")
+        assert result[1].text == "full answer"
+        assert mock_sleep.call_count == 3
+
+    @patch("src.cursor.client.time.sleep")
+    def test_stabilize_stops_after_max_rounds(self, mock_sleep):
+        """When text never stabilizes, return the last snapshot after max_rounds."""
+        a = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="m", type="assistant_message", text="a"),
+        ]
+        b = [
+            AgentMessage(id="1", type="user_message", text="q"),
+            AgentMessage(id="m", type="assistant_message", text="b"),
+        ]
+        client = CursorClient(
+            api_key="k",
+            source_repository="https://github.com/t/r",
+            conversation_text_stabilize_interval_seconds=0.01,
+            conversation_text_stabilize_required_matches=3,
+            conversation_text_stabilize_max_rounds=2,
+        )
+        with patch.object(client, "get_conversation", side_effect=[a, b, b]):
+            result = client.get_conversation_after_complete("agent_1", expected_previous_message_id="prev")
+        assert result[1].text == "b"
 
     def test_get_latest_assistant_message_obj(self, cursor_client):
         # Chronological order: last assistant is latest

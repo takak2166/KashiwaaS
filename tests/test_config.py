@@ -63,6 +63,19 @@ def test_load_config_invalid_float_raises_config_error() -> None:
         load_config({"CURSOR_CONVERSATION_RETRY_DELAY_SECONDS": "x"})
 
 
+def test_load_config_cursor_text_stabilize_env() -> None:
+    cfg = load_config(
+        {
+            "CURSOR_CONVERSATION_TEXT_STABILIZE_INTERVAL_SECONDS": "2.5",
+            "CURSOR_CONVERSATION_TEXT_STABILIZE_REQUIRED_MATCHES": "5",
+            "CURSOR_CONVERSATION_TEXT_STABILIZE_MAX_ROUNDS": "10",
+        }
+    )
+    assert cfg.cursor.conversation_text_stabilize_interval_seconds == 2.5
+    assert cfg.cursor.conversation_text_stabilize_required_matches == 5
+    assert cfg.cursor.conversation_text_stabilize_max_rounds == 10
+
+
 def test_load_config_valkey_ttl_negative_raises_config_error() -> None:
     with pytest.raises(ConfigError, match="VALKEY_THREAD_TTL_SECONDS must be >= 0"):
         load_config({"VALKEY_THREAD_TTL_SECONDS": "-1"})

@@ -128,6 +128,9 @@ def create_app(cfg: AppConfig) -> App:
         model=cfg.cursor.model,
         conversation_retry_max_retries=cfg.cursor.conversation_retry_max_retries,
         conversation_retry_delay_seconds=cfg.cursor.conversation_retry_delay_seconds,
+        conversation_text_stabilize_interval_seconds=cfg.cursor.conversation_text_stabilize_interval_seconds,
+        conversation_text_stabilize_required_matches=cfg.cursor.conversation_text_stabilize_required_matches,
+        conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
     thread_store = ThreadStore(cfg.valkey)
 
