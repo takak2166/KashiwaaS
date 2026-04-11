@@ -76,6 +76,21 @@ def test_load_config_cursor_text_stabilize_env() -> None:
     assert cfg.cursor.conversation_text_stabilize_max_rounds == 10
 
 
+def test_load_config_cursor_text_stabilize_interval_negative_raises() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_CONVERSATION_TEXT_STABILIZE_INTERVAL_SECONDS must be >= 0"):
+        load_config({"CURSOR_CONVERSATION_TEXT_STABILIZE_INTERVAL_SECONDS": "-0.1"})
+
+
+def test_load_config_cursor_text_stabilize_required_matches_below_one_raises() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_CONVERSATION_TEXT_STABILIZE_REQUIRED_MATCHES must be >= 1"):
+        load_config({"CURSOR_CONVERSATION_TEXT_STABILIZE_REQUIRED_MATCHES": "0"})
+
+
+def test_load_config_cursor_text_stabilize_max_rounds_below_one_raises() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_CONVERSATION_TEXT_STABILIZE_MAX_ROUNDS must be >= 1"):
+        load_config({"CURSOR_CONVERSATION_TEXT_STABILIZE_MAX_ROUNDS": "0"})
+
+
 def test_load_config_valkey_ttl_negative_raises_config_error() -> None:
     with pytest.raises(ConfigError, match="VALKEY_THREAD_TTL_SECONDS must be >= 0"):
         load_config({"VALKEY_THREAD_TTL_SECONDS": "-1"})
