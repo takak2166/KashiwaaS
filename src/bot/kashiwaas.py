@@ -128,6 +128,9 @@ def create_app(cfg: AppConfig) -> App:
         model=cfg.cursor.model,
         conversation_retry_max_retries=cfg.cursor.conversation_retry_max_retries,
         conversation_retry_delay_seconds=cfg.cursor.conversation_retry_delay_seconds,
+        conversation_text_stabilize_interval_seconds=cfg.cursor.conversation_text_stabilize_interval_seconds,
+        conversation_text_stabilize_required_matches=cfg.cursor.conversation_text_stabilize_required_matches,
+        conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
     thread_store = ThreadStore(cfg.valkey)
 
@@ -274,7 +277,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread
 
                 if _dup():
                     max_retries = cursor_client.conversation_retry_max_retries
-                    delay_seconds = cursor_client.conversation_retry_delay_seconds
                     for attempt in range(max_retries):
                         logger.info(
                             "Duplicate assistant message detected; retrying conversation fetch "
@@ -283,9 +285,10 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread
                                 f"event_ts={event_ts}, msg_id={latest_msg.id})"
                             )
                         )
-                        if attempt > 0:
-                            time.sleep(delay_seconds * (2 ** (attempt - 1)))
-                        refreshed = cursor_client.get_conversation(result.agent_id)
+                        refreshed = cursor_client.get_conversation_after_complete(
+                            result.agent_id,
+                            expected_previous_message_id=latest_msg.id,
+                        )
                         latest = cursor_client.get_latest_assistant_message_obj(refreshed)
                         if not latest:
                             break

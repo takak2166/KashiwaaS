@@ -673,6 +673,7 @@ class TestThreadLocks:
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
+        cursor_client.conversation_retry_max_retries = 4
         cursor_client.followup.return_value = AgentResult(
             agent_id="agent_1",
             status=AgentStatus.FINISHED,
@@ -690,6 +691,7 @@ class TestThreadLocks:
         _handle_mention(ack, event, say, client, cursor_client, mock_store)
 
         say.assert_called()
+        cursor_client.get_conversation_after_complete.assert_called()
 
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.threading.Thread")
@@ -725,12 +727,14 @@ class TestThreadLocks:
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
+        cursor_client.conversation_retry_max_retries = 2
         cursor_client.followup.return_value = AgentResult(
             agent_id="agent_1",
             status=AgentStatus.FINISHED,
             messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
         )
         cursor_client.get_latest_assistant_message_obj.side_effect = [
+            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
             AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
             AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
         ]
@@ -742,3 +746,4 @@ class TestThreadLocks:
 
         say.assert_called_once()
         assert "same response content" in say.call_args[1]["text"]
+        assert cursor_client.get_conversation_after_complete.call_count == 2

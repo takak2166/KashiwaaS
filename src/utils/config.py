@@ -78,6 +78,9 @@ class CursorConfig:
     model: Optional[str] = "composer-2"
     conversation_retry_max_retries: int = 4
     conversation_retry_delay_seconds: float = 1.5
+    conversation_text_stabilize_interval_seconds: float = 1.0
+    conversation_text_stabilize_required_matches: int = 3
+    conversation_text_stabilize_max_rounds: int = 60
 
 
 @dataclass(frozen=True)
@@ -169,6 +172,15 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
 
     conv_max = _get_int(e, "CURSOR_CONVERSATION_RETRY_MAX_RETRIES", 4)
     conv_delay = _get_float(e, "CURSOR_CONVERSATION_RETRY_DELAY_SECONDS", 1.5)
+    conv_stab_interval = _get_float(e, "CURSOR_CONVERSATION_TEXT_STABILIZE_INTERVAL_SECONDS", 1.0)
+    conv_stab_matches = _get_int(e, "CURSOR_CONVERSATION_TEXT_STABILIZE_REQUIRED_MATCHES", 3)
+    conv_stab_max = _get_int(e, "CURSOR_CONVERSATION_TEXT_STABILIZE_MAX_ROUNDS", 60)
+    if conv_stab_interval < 0:
+        raise ConfigError("CURSOR_CONVERSATION_TEXT_STABILIZE_INTERVAL_SECONDS must be >= 0")
+    if conv_stab_matches < 1:
+        raise ConfigError("CURSOR_CONVERSATION_TEXT_STABILIZE_REQUIRED_MATCHES must be >= 1")
+    if conv_stab_max < 1:
+        raise ConfigError("CURSOR_CONVERSATION_TEXT_STABILIZE_MAX_ROUNDS must be >= 1")
 
     valkey_url = _get_str(e, "VALKEY_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0"
     valkey_ttl = _get_int(e, "VALKEY_THREAD_TTL_SECONDS", DEFAULT_VALKEY_THREAD_TTL_SECONDS)
@@ -214,6 +226,9 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             model=_get_str(e, "CURSOR_MODEL", "composer-2"),
             conversation_retry_max_retries=conv_max,
             conversation_retry_delay_seconds=conv_delay,
+            conversation_text_stabilize_interval_seconds=conv_stab_interval,
+            conversation_text_stabilize_required_matches=conv_stab_matches,
+            conversation_text_stabilize_max_rounds=conv_stab_max,
         ),
         bot=BotConfig(
             app_token=_get_str(e, "SLACK_APP_TOKEN"),

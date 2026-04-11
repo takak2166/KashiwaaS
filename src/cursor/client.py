@@ -74,6 +74,9 @@ class CursorClient:
         model: Optional[str] = None,
         conversation_retry_max_retries: int = 4,
         conversation_retry_delay_seconds: float = 1.5,
+        conversation_text_stabilize_interval_seconds: float = 1.0,
+        conversation_text_stabilize_required_matches: int = 3,
+        conversation_text_stabilize_max_rounds: int = 60,
     ):
         self.api_key = api_key
         self.source_repository = source_repository
@@ -84,6 +87,9 @@ class CursorClient:
         self.model = model
         self.conversation_retry_max_retries = conversation_retry_max_retries
         self.conversation_retry_delay_seconds = conversation_retry_delay_seconds
+        self.conversation_text_stabilize_interval_seconds = conversation_text_stabilize_interval_seconds
+        self.conversation_text_stabilize_required_matches = conversation_text_stabilize_required_matches
+        self.conversation_text_stabilize_max_rounds = conversation_text_stabilize_max_rounds
 
         encoded = b64encode(f"{api_key}:".encode()).decode()
         self.headers = {
@@ -172,6 +178,37 @@ class CursorClient:
             )
         return messages
 
+    def _stabilize_conversation_assistant_text(self, agent_id: str, messages: List[AgentMessage]) -> List[AgentMessage]:
+        """
+        Poll conversation until the latest assistant ``text`` is unchanged for
+        ``conversation_text_stabilize_required_matches`` consecutive fetches
+        (after ``conversation_text_stabilize_interval_seconds`` between fetches),
+        or ``conversation_text_stabilize_max_rounds`` additional polls elapse.
+        """
+        required = self.conversation_text_stabilize_required_matches
+        if required < 2:
+            return messages
+        latest = self.get_latest_assistant_message_obj(messages)
+        if latest is None:
+            return messages
+        prev_text = latest.text
+        stable_count = 1
+        interval = self.conversation_text_stabilize_interval_seconds
+        for _ in range(self.conversation_text_stabilize_max_rounds):
+            if stable_count >= required:
+                return messages
+            time.sleep(interval)
+            messages = self.get_conversation(agent_id)
+            latest = self.get_latest_assistant_message_obj(messages)
+            if latest is None:
+                return messages
+            if latest.text == prev_text:
+                stable_count += 1
+            else:
+                stable_count = 1
+                prev_text = latest.text
+        return messages
+
     def get_conversation_after_complete(
         self,
         agent_id: str,
@@ -188,21 +225,27 @@ class CursorClient:
         answer (API eventual consistency). Uses exponential backoff between
         retries (delay_seconds * 2^attempt). Uses conversation_retry_max_retries
         and conversation_retry_delay_seconds from the client when not overridden.
+
+        Then polls until the latest assistant message text is stable for
+        ``conversation_text_stabilize_required_matches`` consecutive reads
+        (``conversation_text_stabilize_interval_seconds`` apart), so partially
+        materialized replies are less likely to be returned right after FINISHED.
         """
         max_retries = max_retries if max_retries is not None else self.conversation_retry_max_retries
         delay_seconds = delay_seconds if delay_seconds is not None else self.conversation_retry_delay_seconds
         if max_retries < 1:
-            return self.get_conversation(agent_id)
+            messages = self.get_conversation(agent_id)
+            return self._stabilize_conversation_assistant_text(agent_id, messages)
         for attempt in range(max_retries):
             messages = self.get_conversation(agent_id)
             latest = self.get_latest_assistant_message_obj(messages)
             if expected_previous_message_id is None or latest is None:
-                return messages
+                return self._stabilize_conversation_assistant_text(agent_id, messages)
             if latest.id != expected_previous_message_id:
-                return messages
+                return self._stabilize_conversation_assistant_text(agent_id, messages)
             if attempt < max_retries - 1:
                 time.sleep(delay_seconds * (2**attempt))
-        return messages
+        return self._stabilize_conversation_assistant_text(agent_id, messages)
 
     def send_followup(self, agent_id: str, prompt: str) -> None:
         """Send a follow-up prompt to an existing agent."""
