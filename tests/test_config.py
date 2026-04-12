@@ -30,6 +30,7 @@ def _minimal_cfg() -> AppConfig:
         cursor=CursorConfig(),
         bot=BotConfig(),
         valkey=ValkeyConfig(url="redis://localhost:6379/0"),
+        mattermost=None,
     )
 
 
@@ -99,3 +100,25 @@ def test_load_config_valkey_ttl_negative_raises_config_error() -> None:
 def test_load_config_valkey_ttl_above_max_raises_config_error() -> None:
     with pytest.raises(ConfigError, match="VALKEY_THREAD_TTL_SECONDS must be <="):
         load_config({"VALKEY_THREAD_TTL_SECONDS": str(MAX_VALKEY_THREAD_TTL_SECONDS + 1)})
+
+
+def test_load_config_mattermost_partial_raises() -> None:
+    with pytest.raises(ConfigError, match="Mattermost is partially configured"):
+        load_config({"MATTERMOST_URL": "https://mm.example.com"})
+
+
+def test_load_config_mattermost_full() -> None:
+    cfg = load_config(
+        {
+            "MATTERMOST_URL": "https://mm.example.com:443",
+            "MATTERMOST_PAT": "pat",
+            "MATTERMOST_BOT_USER_ID": "uid1",
+            "MATTERMOST_VERIFY_TLS": "false",
+            "MATTERMOST_LOG_RAW_WEBSOCKET": "true",
+        }
+    )
+    assert cfg.mattermost is not None
+    assert cfg.mattermost.driver_host == "mm.example.com"
+    assert cfg.mattermost.driver_port == 443
+    assert cfg.mattermost.verify_tls is False
+    assert cfg.mattermost.log_raw_websocket is True

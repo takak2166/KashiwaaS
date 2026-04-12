@@ -3,31 +3,23 @@ KashiwaaS Bot Module
 Slack Socket Mode application that answers questions via Cursor Cloud Agents API.
 """
 
-import hashlib
 import sys
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from redis.exceptions import RedisError
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from valkey.exceptions import ValkeyError
 
 from src.bot.alerter import init_alerter
+from src.bot.cursor_reply import run_cursor_reply
 from src.bot.kashiwaas_mention import (
     extract_question,
-    is_duplicate_assistant_reply,
     slack_mention_event_from_dict,
 )
 from src.bot.thread_store import ThreadStore
-from src.cursor.client import (
-    AgentStatus,
-    CursorAPIError,
-    CursorClient,
-    CursorTimeoutError,
-)
+from src.cursor.client import CursorClient
 from src.slack import markdown_blocks as _slack_md
 from src.utils.config import AppConfig, ConfigError, apply_dotenv, load_config
 from src.utils.logger import get_logger
@@ -101,15 +93,6 @@ def _thread_ts_lock(thread_ts: str):
         lock.release()
 
 
-def _thread_store_safe(fn, /, *, default=None):
-    """Run a ThreadStore op; log and swallow Valkey/redis errors so cleanup paths do not mask prior failures."""
-    try:
-        return fn()
-    except (ValkeyError, RedisError) as e:
-        logger.warning("ThreadStore operation failed (ignored): %s", e)
-        return default
-
-
 def create_app(cfg: AppConfig) -> App:
     """Create and configure the Slack Bolt application from loaded config."""
     if not cfg.bot.bot_token:
@@ -143,11 +126,6 @@ def create_app(cfg: AppConfig) -> App:
         logger.info(body)
 
     return app
-
-
-def _fingerprint_text(text: str) -> str:
-    normalized = text.replace("\r\n", "\n").rstrip()
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _add_reaction(client, channel: str, timestamp: str, name: str) -> None:
@@ -222,139 +200,30 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread
 
     def _process():
         with _thread_ts_lock(thread_ts):
-            try:
-                agent_id = thread_store.get(thread_ts)
-                on_poll = _make_poll_progress_notifier(say, thread_ts)
 
-                expected_previous_message_id = thread_store.get_last_message_id(thread_ts)
-                if agent_id:
-                    logger.info(f"Followup in thread {thread_ts} -> agent {agent_id}")
-                    result = cursor_client.followup(
-                        agent_id,
-                        question,
-                        expected_previous_message_id=expected_previous_message_id,
-                        on_poll=on_poll,
-                    )
-                else:
-                    logger.info(f"New question in thread {thread_ts}: {question[:80]}...")
-                    result = cursor_client.ask(
-                        question,
-                        expected_previous_message_id=expected_previous_message_id,
-                        on_poll=on_poll,
-                    )
-                    if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                        thread_store.set(thread_ts, result.agent_id)
+            def post_plain(t: str) -> None:
+                say(text=t, thread_ts=thread_ts)
 
-                if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                    thread_store.remove(thread_ts)
-                    _remove_reaction(client, channel, event_ts, "eyes")
-                    _add_reaction(client, channel, event_ts, "x")
-                    say(
-                        text="Sorry, an error occurred while generating the response. Please try again later.",
-                        thread_ts=thread_ts,
-                    )
-                    return
+            def post_assistant(t: str) -> None:
+                _slack_md.say_markdown_text(say, t, thread_ts)
 
-                latest_msg = cursor_client.get_latest_assistant_message_obj(result.messages)
-                if not latest_msg:
-                    thread_store.remove(thread_ts)
-                    _remove_reaction(client, channel, event_ts, "eyes")
-                    _add_reaction(client, channel, event_ts, "x")
-                    say(text="Failed to retrieve a response. Please try again.", thread_ts=thread_ts)
-                    return
+            def react_add(name: str) -> None:
+                _add_reaction(client, channel, event_ts, name)
 
-                last_sent_message_id = thread_store.get_last_message_id(thread_ts)
-                last_sent_fingerprint = thread_store.get_last_message_fingerprint(thread_ts)
-                current_fingerprint = _fingerprint_text(latest_msg.text)
+            def react_remove(name: str) -> None:
+                _remove_reaction(client, channel, event_ts, name)
 
-                def _dup() -> bool:
-                    return is_duplicate_assistant_reply(
-                        last_sent_message_id=last_sent_message_id,
-                        last_sent_fingerprint=last_sent_fingerprint,
-                        assistant_message_id=latest_msg.id,
-                        assistant_text_fingerprint=current_fingerprint,
-                    )
-
-                if _dup():
-                    max_retries = cursor_client.conversation_retry_max_retries
-                    for attempt in range(max_retries):
-                        logger.info(
-                            "Duplicate assistant message detected; retrying conversation fetch "
-                            + (
-                                f"(attempt={attempt + 1}/{max_retries}, thread_ts={thread_ts}, "
-                                f"event_ts={event_ts}, msg_id={latest_msg.id})"
-                            )
-                        )
-                        refreshed = cursor_client.get_conversation_after_complete(
-                            result.agent_id,
-                            expected_previous_message_id=latest_msg.id,
-                        )
-                        latest = cursor_client.get_latest_assistant_message_obj(refreshed)
-                        if not latest:
-                            break
-                        latest_msg = latest
-                        current_fingerprint = _fingerprint_text(latest_msg.text)
-                        if not _dup():
-                            break
-
-                    if _dup():
-                        _remove_reaction(client, channel, event_ts, "eyes")
-                        _add_reaction(client, channel, event_ts, "x")
-                        say(
-                            text="The same response content keeps repeating. Please wait a moment and try again.",
-                            thread_ts=thread_ts,
-                        )
-                        return
-
-                logger.info(
-                    f"Sending assistant message: thread_ts={thread_ts}, event_ts={event_ts}, msg_id={latest_msg.id}"
-                )
-                thread_store.set_last_message_id(thread_ts, latest_msg.id)
-                thread_store.set_last_message_fingerprint(thread_ts, current_fingerprint)
-
-                _slack_md.say_markdown_text(say, latest_msg.text, thread_ts)
-
-                _remove_reaction(client, channel, event_ts, "eyes")
-                _add_reaction(client, channel, event_ts, "white_check_mark")
-
-            except CursorTimeoutError:
-                _thread_store_safe(lambda: thread_store.remove(thread_ts))
-                _remove_reaction(client, channel, event_ts, "eyes")
-                _add_reaction(client, channel, event_ts, "x")
-                say(
-                    text=(
-                        "Response generation timed out (agent did not finish within the poll timeout). "
-                        "Please shorten your question, split the task, or ask an admin to raise CURSOR_POLL_TIMEOUT."
-                    ),
-                    thread_ts=thread_ts,
-                )
-            except CursorAPIError as e:
-                logger.error(f"Cursor API error: {e}")
-                _remove_reaction(client, channel, event_ts, "eyes")
-                _add_reaction(client, channel, event_ts, "x")
-                if e.status_code in (401, 403):
-                    say(
-                        text=(
-                            "There is an issue with Cursor API authentication settings. "
-                            "Please contact an administrator."
-                        ),
-                        thread_ts=thread_ts,
-                    )
-                else:
-                    _thread_store_safe(lambda: thread_store.remove(thread_ts))
-                    say(
-                        text="Sorry, failed to retrieve a response. Please try again later.",
-                        thread_ts=thread_ts,
-                    )
-            except Exception as e:
-                logger.error(f"Unexpected error handling mention: {e}")
-                _thread_store_safe(lambda: thread_store.remove(thread_ts))
-                _remove_reaction(client, channel, event_ts, "eyes")
-                _add_reaction(client, channel, event_ts, "x")
-                say(
-                    text="An unexpected error occurred. Please try again later.",
-                    thread_ts=thread_ts,
-                )
+            run_cursor_reply(
+                thread_store_key=thread_ts,
+                question=question,
+                thread_store=thread_store,
+                cursor_client=cursor_client,
+                on_poll=_make_poll_progress_notifier(say, thread_ts),
+                post_assistant_text=post_assistant,
+                post_plain=post_plain,
+                react_add=react_add,
+                react_remove=react_remove,
+            )
 
     threading.Thread(target=_process, daemon=True).start()
 

@@ -53,5 +53,17 @@ services:
       - valkey
     restart: unless-stopped
 
+  kashiwaas-mattermost:
+    profiles: ["mattermost"]
+    build: .
+    command: ["poetry", "run", "python", "-m", "src.bot.kashiwaas_mattermost"]
+    environment:
+      - TZ=Asia/Tokyo
+    env_file:
+      - .env
+    depends_on:
+      - valkey
+    restart: unless-stopped
+
 volumes:
   es_data:

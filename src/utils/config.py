@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -92,6 +93,20 @@ class BotConfig:
 
 
 @dataclass(frozen=True)
+class MattermostConfig:
+    """Mattermost bot (WebSocket + PAT). Optional in ``AppConfig``; required when running the MM entrypoint."""
+
+    url: str
+    pat: str
+    bot_user_id: str
+    driver_scheme: str
+    driver_host: str
+    driver_port: int
+    verify_tls: bool = True
+    log_raw_websocket: bool = False
+
+
+@dataclass(frozen=True)
 class ValkeyConfig:
     """Valkey (Redis protocol) for persistent Slack thread to Cursor agent mapping."""
 
@@ -112,6 +127,7 @@ class AppConfig:
     cursor: CursorConfig
     bot: BotConfig
     valkey: ValkeyConfig
+    mattermost: Optional[MattermostConfig] = None
 
 
 def apply_dotenv(dotenv_path: Optional[Path] = None) -> None:
@@ -191,6 +207,44 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             f"VALKEY_THREAD_TTL_SECONDS must be <= {MAX_VALKEY_THREAD_TTL_SECONDS} (~10 years); got {valkey_ttl}"
         )
 
+    mm_url_raw = _get_str(e, "MATTERMOST_URL")
+    mm_pat = _get_str(e, "MATTERMOST_PAT")
+    mm_bot_uid = _get_str(e, "MATTERMOST_BOT_USER_ID")
+    mattermost: Optional[MattermostConfig] = None
+    if mm_url_raw or mm_pat or mm_bot_uid:
+        if not mm_url_raw or not mm_pat or not mm_bot_uid:
+            raise ConfigError(
+                "Mattermost is partially configured: set all of MATTERMOST_URL, MATTERMOST_PAT, "
+                "MATTERMOST_BOT_USER_ID (or omit all for Slack-only)"
+            )
+        parsed = urlparse(mm_url_raw if "://" in mm_url_raw else f"https://{mm_url_raw}")
+        if not parsed.hostname:
+            raise ConfigError("MATTERMOST_URL must include a hostname (e.g. https://chat.example.com)")
+        scheme = (parsed.scheme or "https").lower()
+        if scheme not in ("http", "https"):
+            raise ConfigError(f"MATTERMOST_URL scheme must be http or https (got {parsed.scheme!r})")
+        port = parsed.port
+        if port is None:
+            port = 443 if scheme == "https" else 8065
+        mm_verify_raw = (_get_str(e, "MATTERMOST_VERIFY_TLS", "true") or "true").lower()
+        verify_tls = mm_verify_raw not in ("0", "false", "no", "off")
+        log_raw = (_get_str(e, "MATTERMOST_LOG_RAW_WEBSOCKET", "false") or "false").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        mattermost = MattermostConfig(
+            url=mm_url_raw,
+            pat=mm_pat,
+            bot_user_id=mm_bot_uid,
+            driver_scheme=scheme,
+            driver_host=parsed.hostname,
+            driver_port=port,
+            verify_tls=verify_tls,
+            log_raw_websocket=log_raw,
+        )
+
     return AppConfig(
         slack=SlackConfig(
             api_token=_get_str(e, "SLACK_API_TOKEN"),
@@ -238,6 +292,7 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             url=valkey_url,
             thread_ttl_seconds=valkey_ttl,
         ),
+        mattermost=mattermost,
     )
 
 

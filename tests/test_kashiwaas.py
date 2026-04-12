@@ -10,6 +10,7 @@ import fakeredis
 from redis.exceptions import ResponseError
 from valkey.exceptions import ValkeyError
 
+from src.bot.cursor_reply import thread_store_safe as _thread_store_safe
 from src.bot.kashiwaas import (
     POLL_PROGRESS_POST_INTERVAL_SECONDS,
     SLACK_MARKDOWN_BLOCK_TEXT_MAX,
@@ -17,7 +18,6 @@ from src.bot.kashiwaas import (
     _fallback_notification_text,
     _say_markdown_chunks,
     _split_message,
-    _thread_store_safe,
 )
 from src.bot.thread_store import ThreadStore
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorTimeoutError
@@ -31,7 +31,7 @@ def _thread_store_for_test(*, thread_ttl_seconds: int = 86400) -> ThreadStore:
 
 def _thread_store_key_count(store: ThreadStore) -> int:
     """Count thread keys (tests only; avoids O(N) scan_iter on ThreadStore in production code)."""
-    pattern = f"{ThreadStore._KEY_PREFIX}*"
+    pattern = f"{ThreadStore._KEY_PREFIX}{store._key_prefix_suffix}*"  # noqa: SLF001
     return sum(1 for _ in store._client.scan_iter(match=pattern, count=100))
 
 

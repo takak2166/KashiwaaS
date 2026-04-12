@@ -21,19 +21,21 @@ _F_LAST_FINGERPRINT = "last_message_fingerprint"
 
 class ThreadStore:
     """
-    Valkey Hash per Slack thread_ts: agent_id and optional last assistant message metadata.
+    Valkey Hash per thread key: agent_id and optional last assistant message metadata.
 
     Keys use a sliding TTL (refresh on read/write) so idle threads expire.
+    ``key_prefix`` namespaces platforms (e.g. ``slack:`` vs ``mm:``) under ``kashiwaas:thread:``.
     """
 
     _KEY_PREFIX = "kashiwaas:thread:"
 
-    def __init__(self, cfg: ValkeyConfig, *, client: Any | None = None):
+    def __init__(self, cfg: ValkeyConfig, *, client: Any | None = None, key_prefix: str = ""):
         self._ttl = cfg.thread_ttl_seconds
         self._client: Any = client if client is not None else Valkey.from_url(cfg.url, decode_responses=True)
+        self._key_prefix_suffix = key_prefix
 
     def _key(self, thread_ts: str) -> str:
-        return f"{self._KEY_PREFIX}{thread_ts}"
+        return f"{self._KEY_PREFIX}{self._key_prefix_suffix}{thread_ts}"
 
     def _refresh_ttl(self, key: str) -> None:
         if self._ttl > 0:
