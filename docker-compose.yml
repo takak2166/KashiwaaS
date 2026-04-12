@@ -9,6 +9,8 @@ services:
     depends_on:
       - elasticsearch
   
+  # Dev-oriented template: security off and host port published. Do not expose :9200 to the internet
+  # or reuse this compose file as-is for production (enable auth/TLS and restrict bind addresses).
   elasticsearch:
     build: ./elasticsearch
     environment:

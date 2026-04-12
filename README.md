@@ -132,6 +132,8 @@ poetry run python -m src.bot.kashiwaas
 ### Mattermost bot (separate entrypoint)
 Self-hosted Mattermost uses PAT auth and a WebSocket listener (`mattermostdriver`), not Slack Bolt. Set `MATTERMOST_URL`, `MATTERMOST_PAT`, and `MATTERMOST_BOT_USER_ID` together (see `.env.example`). Run `poetry run python -m src.bot.kashiwaas_mattermost`. Use one process per bot token to avoid duplicate answers. Optional Compose profile: `docker compose --profile mattermost up -d kashiwaas-mattermost`.
 
+**Security note (local stack):** The default `docker-compose.yml` Elasticsearch service disables X-Pack security and publishes port `9200` for developer convenience. Treat it as **non-production**; do not expose that port publicly or assume these defaults in a hardened deployment. For Mattermost, `MATTERMOST_VERIFY_TLS=false` disables TLS verification (use only with self-signed certs in controlled networks). `MATTERMOST_LOG_RAW_WEBSOCKET=true` logs raw frames and may capture message content—enable briefly for debugging only.
+
 **Broken pipe errors:** You may see occasional `BrokenPipeError` or "Failed to check the state of sock" in logs. This is a known behavior of Slack Socket Mode when the WebSocket connection drops (e.g. network glitches). The Bolt client automatically reconnects; if the bot continues to respond to mentions, these messages can be ignored. Logging to stderr is also configured to avoid crashing on a closed pipe in Docker.
 
 ## Deployment
@@ -279,6 +281,8 @@ poetry run python -m src.bot.kashiwaas
 
 ### Mattermost ボット（別エントリ）
 自前の Mattermost では PAT と WebSocket（`mattermostdriver`）を使います。`MATTERMOST_URL`・`MATTERMOST_PAT`・`MATTERMOST_BOT_USER_ID` をまとめて設定してください（`.env.example` 参照）。起動は `poetry run python -m src.bot.kashiwaas_mattermost`。同一ボットを複数プロセスで動かすと二重応答になるため 1 プロセスにしてください。Compose プロファイル例: `docker compose --profile mattermost up -d kashiwaas-mattermost`。
+
+**セキュリティ（ローカル用スタック）:** 既定の `docker-compose.yml` では Elasticsearch の X-Pack セキュリティを無効にし、開発向けに `9200` をホスト公開しています。**本番そのまま利用しないでください**（認証・TLS・バインド制限を別途設計してください）。Mattermost の `MATTERMOST_VERIFY_TLS=false` は証明書検証を無効化します（自己署名検証など限定的な用途向け）。`MATTERMOST_LOG_RAW_WEBSOCKET=true` は生 WebSocket を INFO に出し得るため、**短期デバッグ専用**としてください。
 
 **Broken pipe について:** ログに `BrokenPipeError` や "Failed to check the state of sock" がときどき出ることがあります。Slack Socket Mode で WebSocket が切断されたとき（ネットワークの揺れなど）の既知の挙動です。Bolt は自動で再接続するため、メンションへの応答が続いていれば無視して問題ありません。また、Docker でパイプが閉じた際のクラッシュを避けるため、stderr へのログ出力には catch を入れています。
 
