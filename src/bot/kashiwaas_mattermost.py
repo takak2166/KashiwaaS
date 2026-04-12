@@ -155,6 +155,7 @@ def handle_mattermost_mention(
         logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
         return
 
+    # Intentional: log full mention post text at INFO for troubleshooting (may contain secrets/PII).
     logger.info(
         "mattermost mention: channel={} root={} post={} text={!r}",
         ev.channel_id,
