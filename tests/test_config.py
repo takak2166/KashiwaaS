@@ -122,3 +122,51 @@ def test_load_config_mattermost_full() -> None:
     assert cfg.mattermost.driver_port == 443
     assert cfg.mattermost.verify_tls is False
     assert cfg.mattermost.log_raw_websocket is True
+
+
+@pytest.mark.parametrize(
+    ("mm_url", "match"),
+    [
+        ("https://", "MATTERMOST_URL must include a hostname"),
+        ("http://", "MATTERMOST_URL must include a hostname"),
+        ("ws://mm.example.com", "MATTERMOST_URL scheme must be http or https"),
+        ("ftp://mm.example.com", "MATTERMOST_URL scheme must be http or https"),
+        ("wss://mm.example.com", "MATTERMOST_URL scheme must be http or https"),
+    ],
+)
+def test_load_config_mattermost_invalid_url_raises(mm_url: str, match: str) -> None:
+    with pytest.raises(ConfigError, match=match):
+        load_config(
+            {
+                "MATTERMOST_URL": mm_url,
+                "MATTERMOST_PAT": "pat",
+                "MATTERMOST_BOT_USER_ID": "uid1",
+            }
+        )
+
+
+def test_load_config_mattermost_http_default_port() -> None:
+    cfg = load_config(
+        {
+            "MATTERMOST_URL": "http://mm.example.com",
+            "MATTERMOST_PAT": "pat",
+            "MATTERMOST_BOT_USER_ID": "uid1",
+        }
+    )
+    assert cfg.mattermost is not None
+    assert cfg.mattermost.driver_scheme == "http"
+    assert cfg.mattermost.driver_host == "mm.example.com"
+    assert cfg.mattermost.driver_port == 8065
+
+
+def test_load_config_mattermost_https_default_port() -> None:
+    cfg = load_config(
+        {
+            "MATTERMOST_URL": "https://mm.example.com",
+            "MATTERMOST_PAT": "pat",
+            "MATTERMOST_BOT_USER_ID": "uid1",
+        }
+    )
+    assert cfg.mattermost is not None
+    assert cfg.mattermost.driver_scheme == "https"
+    assert cfg.mattermost.driver_port == 443
