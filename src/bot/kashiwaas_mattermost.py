@@ -6,7 +6,6 @@ Run as ``python -m src.bot.kashiwaas_mattermost``. Operate one process per bot t
 from __future__ import annotations
 
 import json
-import re
 import sys
 import threading
 import time
@@ -114,11 +113,8 @@ def _mattermost_driver_options(mm: MattermostConfig) -> dict[str, Any]:
 
 
 def _mm_escape_message(text: str) -> str:
-    """Minimal Mattermost safety: collapse NUL and trim runaway pipes that break tables."""
-    t = text.replace("\x00", "")
-    if "|" in t and re.search(r"\n\|", t):
-        t = t.replace("|", "\\|")
-    return t
+    """Strip NULs only. Do not rewrite ``|``; global escaping broke tables and non-table pipes."""
+    return text.replace("\x00", "")
 
 
 def _post_mm_chunks(mm: MattermostBotClient, channel_id: str, root_id: str, text: str) -> None:
