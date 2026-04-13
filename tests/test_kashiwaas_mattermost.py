@@ -7,6 +7,7 @@ from src.bot import kashiwaas_mattermost as mm_bot
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
     extract_question_mattermost,
+    mattermost_broadcast_mentions_bot,
     mattermost_post_mentions_bot,
     mattermost_posted_event_from_broadcast,
     mattermost_root_post_id,
@@ -39,6 +40,18 @@ def test_mattermost_post_mentions_bot_via_props() -> None:
     assert mattermost_post_mentions_bot(post, uid) is True
 
 
+def test_mattermost_post_mentions_bot_props_mentions_json_string() -> None:
+    uid = "u1"
+    post = {"message": "hi", "props": {"mentions": json.dumps([uid])}}
+    assert mattermost_post_mentions_bot(post, uid) is True
+
+
+def test_mattermost_broadcast_mentions_bot_json_string() -> None:
+    uid = "botx"
+    assert mattermost_broadcast_mentions_bot({"mentions": json.dumps([uid, "other"])}, uid) is True
+    assert mattermost_broadcast_mentions_bot({"mentions": json.dumps(["other"])}, uid) is False
+
+
 def test_mattermost_posted_event_from_broadcast_string_post() -> None:
     uid = "botx"
     post_obj = {
@@ -56,6 +69,23 @@ def test_mattermost_posted_event_from_broadcast_string_post() -> None:
     assert ev.root_post_id == "post1"
     assert ev.event_post_id == "post1"
     assert "tuples" in ev.raw_text
+
+
+def test_mattermost_posted_event_from_broadcast_top_level_mentions_string() -> None:
+    uid = "botx"
+    post_obj = {
+        "id": "post1",
+        "channel_id": "ch1",
+        "user_id": "human",
+        "message": "hello without at-token",
+        "root_id": "",
+        "props": {},
+    }
+    data = {"mentions": json.dumps([uid]), "post": json.dumps(post_obj)}
+    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid)
+    assert ev is not None
+    assert ev.channel_id == "ch1"
+    assert ev.event_post_id == "post1"
 
 
 def test_mattermost_posted_event_skips_self() -> None:

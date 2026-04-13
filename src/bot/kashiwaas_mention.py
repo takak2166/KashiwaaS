@@ -45,6 +45,26 @@ def mattermost_root_post_id(post: dict) -> str:
     return str(pid)
 
 
+def _coerce_mention_id_list(raw: object) -> list[str] | None:
+    """Parse Mattermost mention id lists (native list or JSON-encoded array string)."""
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    if isinstance(raw, str):
+        try:
+            loaded = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(loaded, list):
+            return [str(x) for x in loaded]
+    return None
+
+
+def mattermost_broadcast_mentions_bot(data: dict, bot_user_id: str) -> bool:
+    """Whether WebSocket ``posted`` event ``data`` top-level ``mentions`` includes the bot user id."""
+    ids = _coerce_mention_id_list(data.get("mentions"))
+    return bool(ids and bot_user_id in ids)
+
+
 def mattermost_post_mentions_bot(post: dict, bot_user_id: str) -> bool:
     """Whether the post targets the bot (message token and/or ``props`` mention metadata)."""
     message = str(post.get("message") or "")
@@ -53,13 +73,14 @@ def mattermost_post_mentions_bot(post: dict, bot_user_id: str) -> bool:
     props = post.get("props")
     if not isinstance(props, dict):
         return False
-    mentions = props.get("mentions")
-    if isinstance(mentions, list) and bot_user_id in mentions:
+    mentions_raw = props.get("mentions")
+    mentions = _coerce_mention_id_list(mentions_raw)
+    if mentions is not None and bot_user_id in mentions:
         return True
-    if isinstance(mentions, dict):
-        if bot_user_id in mentions:
+    if isinstance(mentions_raw, dict):
+        if bot_user_id in mentions_raw:
             return True
-        inner = mentions.get("mentions")
+        inner = mentions_raw.get("mentions")
         if isinstance(inner, dict) and bot_user_id in inner:
             return True
         if isinstance(inner, list) and bot_user_id in inner:
@@ -97,7 +118,7 @@ def mattermost_posted_event_from_broadcast(
     user_id = str(post.get("user_id") or "")
     if user_id == bot_user_id:
         return None
-    if not mattermost_post_mentions_bot(post, bot_user_id):
+    if not mattermost_post_mentions_bot(post, bot_user_id) and not mattermost_broadcast_mentions_bot(data, bot_user_id):
         return None
     root_post_id = mattermost_root_post_id(post)
     if not channel_id or not post_id or not root_post_id:
