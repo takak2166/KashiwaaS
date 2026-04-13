@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
-RUN pip install poetry==2.3.3
+RUN pip install poetry==2.3.4
 
 # Copy poetry configuration files
 COPY pyproject.toml poetry.lock* README.md ./
