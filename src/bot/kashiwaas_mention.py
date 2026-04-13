@@ -1,5 +1,5 @@
 """
-Pure helpers for Slack app_mention handling (no I/O).
+Chat mention helpers for Slack ``app_mention`` and Mattermost ``posted`` events (no I/O).
 """
 
 from __future__ import annotations

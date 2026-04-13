@@ -233,7 +233,7 @@ def _decode_posted_data(raw: Any) -> dict | None:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning("mattermost posted: invalid JSON in data: %r", raw[:500])
+            logger.warning("mattermost posted: invalid JSON in data: {!r}", raw[:500])
             return None
     return None
 
@@ -273,7 +273,9 @@ def build_websocket_handler(
     return on_message
 
 
-def create_mattermost_stack(cfg: AppConfig) -> tuple[Driver, CursorClient, ThreadStore, MattermostBotClient]:
+def create_mattermost_stack(
+    cfg: AppConfig,
+) -> tuple[MattermostConfig, Driver, CursorClient, ThreadStore, MattermostBotClient]:
     mm_cfg = _require_mattermost_bot_config(cfg)
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
@@ -292,7 +294,7 @@ def create_mattermost_stack(cfg: AppConfig) -> tuple[Driver, CursorClient, Threa
         conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
     thread_store = ThreadStore(cfg.valkey, key_prefix="mm:")
-    return driver, cursor_client, thread_store, mm_client
+    return mm_cfg, driver, cursor_client, thread_store, mm_client
 
 
 def main() -> None:
@@ -300,8 +302,7 @@ def main() -> None:
     cfg = load_config()
     init_alerter(cfg)
     try:
-        mm_cfg = _require_mattermost_bot_config(cfg)
-        driver, cursor_client, thread_store, mm_client = create_mattermost_stack(cfg)
+        mm_cfg, driver, cursor_client, thread_store, mm_client = create_mattermost_stack(cfg)
     except ConfigError as e:
         logger.error("{}", e)
         sys.exit(1)

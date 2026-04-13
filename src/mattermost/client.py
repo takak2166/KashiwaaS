@@ -13,11 +13,6 @@ class MattermostBotClient:
     def __init__(self, driver: Any):
         self._driver = driver
 
-    @property
-    def user_id(self) -> str | None:
-        uid = getattr(self._driver.client, "userid", None)
-        return str(uid) if uid else None
-
     def create_post(self, channel_id: str, message: str, root_id: str = "") -> dict:
         opts: dict[str, str] = {"channel_id": channel_id, "message": message}
         if root_id:

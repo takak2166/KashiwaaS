@@ -64,7 +64,7 @@ jobs:
           with patch.object(mm_bot, "Driver") as mock_driver:
               mock_d = MagicMock()
               mock_driver.return_value = mock_d
-              d, _cc, _ts, _mmc = mm_bot.create_mattermost_stack(
+              _mm, d, _cc, _ts, _mmc = mm_bot.create_mattermost_stack(
                   load_config(
                       {
                           "MATTERMOST_URL": "https://mm.example.com",
