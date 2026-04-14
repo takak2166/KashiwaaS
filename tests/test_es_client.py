@@ -75,6 +75,30 @@ class TestElasticsearchClient:
         mock_es_instance.indices.create.assert_called_once()
 
     @patch("src.es_client.client.Elasticsearch")
+    def test_search_expands_request_without_body(self, mock_elasticsearch):
+        """Search uses keyword args, not ``body=``."""
+        mock_es_instance = MagicMock()
+        mock_elasticsearch.return_value = mock_es_instance
+        mock_es_instance.ping.return_value = True
+        mock_es_instance.search.return_value = {"hits": {"hits": []}}
+
+        client = ElasticsearchClient(_es_cfg())
+        request = {
+            "size": 0,
+            "query": {"match_all": {}},
+            "aggs": {"x": {"terms": {"field": "f"}}},
+        }
+        client.search("slack-test", request)
+
+        mock_es_instance.search.assert_called_once_with(
+            index="slack-test",
+            size=0,
+            from_=0,
+            query=request["query"],
+            aggs=request["aggs"],
+        )
+
+    @patch("src.es_client.client.Elasticsearch")
     def test_create_template(self, mock_elasticsearch):
         """Test create_template method"""
         # Setup mock
@@ -90,7 +114,12 @@ class TestElasticsearchClient:
         # Verify
         assert result is True
         mock_es_instance.indices.put_index_template.assert_called_once_with(
-            name="test-template", body=SLACK_INDEX_TEMPLATE
+            name="test-template",
+            index_patterns=SLACK_INDEX_TEMPLATE["index_patterns"],
+            template=SLACK_INDEX_TEMPLATE["template"],
+            priority=SLACK_INDEX_TEMPLATE["priority"],
+            version=SLACK_INDEX_TEMPLATE["version"],
+            meta=SLACK_INDEX_TEMPLATE["_meta"],
         )
 
     @patch("src.es_client.client.Elasticsearch")
