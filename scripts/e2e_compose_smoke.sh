@@ -49,14 +49,37 @@ docker compose up --build -d --wait
 docker compose cp .env app:/app/.env
 docker compose ps
 
+ready=0
 for i in $(seq 1 30); do
-  if docker compose exec -T app curl -s http://elasticsearch:9200 > /dev/null; then
+  if docker compose exec -T app curl -fsS http://elasticsearch:9200/ >/dev/null 2>&1; then
     echo "Elasticsearch is available"
+    ready=1
     break
   fi
   echo "Elasticsearch is unavailable - sleeping... $i"
   sleep 2
 done
+if [[ "$ready" -ne 1 ]]; then
+  echo "Elasticsearch did not become ready in time"
+  docker compose ps
+  exit 1
+fi
+
+kbn_ready=0
+for i in $(seq 1 45); do
+  if docker compose exec -T app curl -fsS http://kibana:5601/api/status >/dev/null 2>&1; then
+    echo "Kibana is available"
+    kbn_ready=1
+    break
+  fi
+  echo "Kibana is unavailable - sleeping... $i"
+  sleep 5
+done
+if [[ "$kbn_ready" -ne 1 ]]; then
+  echo "Kibana did not become ready in time"
+  docker compose ps
+  exit 1
+fi
 
 docker compose exec -T app poetry run python scripts/setup_indices.py --channel dummy-channel
 docker compose exec -T app poetry run python scripts/import_kibana_objects.py --overwrite
