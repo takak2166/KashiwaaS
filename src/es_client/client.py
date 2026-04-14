@@ -6,6 +6,7 @@ Provides a client for interacting with Elasticsearch
 from typing import Any, Dict, List, Optional
 
 from elasticsearch.exceptions import (
+    ApiError,
     ConnectionError,
     ConnectionTimeout,
     NotFoundError,
@@ -38,7 +39,12 @@ def is_es_temporary_error(exception: Exception) -> bool:
     if isinstance(exception, (ConnectionError, ConnectionTimeout)):
         return True
 
-    # Check for transport errors with 5xx status codes
+    # HTTP 5xx from Elasticsearch APIs (elasticsearch-py v9+: ApiError, not TransportError)
+    if isinstance(exception, ApiError) and hasattr(exception, "status_code"):
+        if 500 <= exception.status_code < 600:
+            return True
+
+    # Transport-layer errors that expose status_code (if any)
     if isinstance(exception, TransportError) and hasattr(exception, "status_code"):
         if 500 <= exception.status_code < 600:
             return True
