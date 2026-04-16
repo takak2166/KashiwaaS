@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   app:
     build: .
@@ -7,7 +6,8 @@ services:
     environment:
       - TZ=Asia/Tokyo
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
   
   # Dev-oriented template: security off and host port published. Do not expose :9200 to the internet
   # or reuse this compose file as-is for production (enable auth/TLS and restrict bind addresses).
@@ -21,6 +21,12 @@ services:
       - es_data:/usr/share/elasticsearch/data
     ports:
       - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
   
   kibana:
     image: docker.elastic.co/kibana/kibana:9.3.3
@@ -29,7 +35,14 @@ services:
     ports:
       - "5601:5601"
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5601/api/status >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 36
+      start_period: 120s
   
   chrome:
     image: selenium/standalone-chrome:latest

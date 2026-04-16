@@ -6,6 +6,7 @@ Provides a client for interacting with Elasticsearch
 from typing import Any, Dict, List, Optional
 
 from elasticsearch.exceptions import (
+    ApiError,
     ConnectionError,
     ConnectionTimeout,
     NotFoundError,
@@ -38,7 +39,12 @@ def is_es_temporary_error(exception: Exception) -> bool:
     if isinstance(exception, (ConnectionError, ConnectionTimeout)):
         return True
 
-    # Check for transport errors with 5xx status codes
+    # HTTP 5xx from Elasticsearch APIs (elasticsearch-py v9+: ApiError, not TransportError)
+    if isinstance(exception, ApiError) and hasattr(exception, "status_code"):
+        if 500 <= exception.status_code < 600:
+            return True
+
+    # Transport-layer errors that expose status_code (if any)
     if isinstance(exception, TransportError) and hasattr(exception, "status_code"):
         if 500 <= exception.status_code < 600:
             return True
@@ -55,6 +61,28 @@ def is_es_temporary_error(exception: Exception) -> bool:
         "overloaded",
     ]
     return any(indicator in error_str for indicator in temporary_indicators)
+
+
+def _search_request_to_client_kwargs(
+    index_name: str,
+    request: Dict[str, Any],
+    *,
+    default_size: int,
+    default_from: int,
+) -> Dict[str, Any]:
+    """Map a JSON-style search request dict to elasticsearch-py ``search()`` keyword args (no ``body``)."""
+    req = dict(request)
+    out: Dict[str, Any] = {
+        "index": index_name,
+        "size": req.pop("size", default_size),
+        "from_": req.pop("from", default_from),
+    }
+    for key in ("query", "aggs", "sort"):
+        if key in req:
+            out[key] = req.pop(key)
+    if req:
+        raise ValueError(f"Unsupported keys in Elasticsearch search request: {sorted(req)}")
+    return out
 
 
 class ElasticsearchClient:
@@ -201,7 +229,28 @@ class ElasticsearchClient:
             bool: True if successful, False otherwise
         """
         try:
-            response = self.client.indices.put_index_template(name=name, body=template)
+            kw: Dict[str, Any] = {
+                "name": name,
+                "index_patterns": template["index_patterns"],
+                "template": template["template"],
+            }
+            if "_meta" in template:
+                kw["meta"] = template["_meta"]
+            for opt in (
+                "priority",
+                "version",
+                "composed_of",
+                "data_stream",
+                "allow_auto_create",
+                "cause",
+                "create",
+                "deprecated",
+                "ignore_missing_component_templates",
+                "master_timeout",
+            ):
+                if opt in template:
+                    kw[opt] = template[opt]
+            response = self.client.indices.put_index_template(**kw)
 
             logger.info(f"Created template {name}: {response}")
             return True
@@ -348,27 +397,20 @@ class ElasticsearchClient:
 
         Args:
             index_name: Name of the index to search
-            query: Elasticsearch query
-            size: Number of results to return (ignored if size is in query)
-            from_: Starting offset (ignored if from is in query)
+            query: Search request fields (e.g. ``query``, ``aggs``, ``size``, ``from``, ``sort``)
+            size: Default result size when ``size`` is omitted from ``query``
+            from_: Default offset when ``from`` is omitted from ``query``
 
         Returns:
             Dict[str, Any]: Search results
         """
         try:
-            # Check if size or from are already in the query
-            params = {"index": index_name}
-
-            # Use body parameter instead of directly passing query
-            params["body"] = query
-
-            # Only add size and from if not already in query
-            if "size" not in query:
-                params["size"] = size
-
-            if "from" not in query:
-                params["from_"] = from_
-
+            params = _search_request_to_client_kwargs(
+                index_name,
+                query,
+                default_size=size,
+                default_from=from_,
+            )
             response = self.client.search(**params)
 
             return response
