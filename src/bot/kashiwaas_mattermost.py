@@ -237,8 +237,8 @@ def handle_mattermost_mention(
         logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
         return
 
-    # Debug / troubleshooting: log full mention post text at INFO (may contain secrets or PII).
-    logger.info(
+    # Debug / troubleshooting: full mention post text (may contain secrets or PII).
+    logger.debug(
         "mattermost mention: channel={} root={} post={} text={!r}",
         ev.channel_id,
         ev.root_post_id,
@@ -338,7 +338,7 @@ def build_websocket_handler(
     async def on_message(message: str) -> None:
         # Debug only: MATTERMOST_LOG_RAW_WEBSOCKET dumps WebSocket payloads (may include tokens or message bodies).
         if mm_cfg.log_raw_websocket:
-            logger.info("mattermost websocket raw: {}", message[:4000])
+            logger.debug("mattermost websocket raw: {}", message[:4000])
         try:
             payload = json.loads(message)
         except json.JSONDecodeError:
