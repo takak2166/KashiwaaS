@@ -121,9 +121,9 @@ def create_app(cfg: AppConfig) -> App:
     def handle_mention(ack, event, say, client):
         _handle_mention(ack, event, say, client, cursor_client, thread_store)
 
-    # Intentional: log the full Bolt ``body`` at INFO for payload inspection / troubleshooting.
-    # Do not remove silently—operators accept that logs may contain message text and metadata
-    # from channels the bot can see; tighten retention or log level in sensitive deployments.
+    # Debug / troubleshooting: log the full Bolt ``body`` at INFO for payload inspection.
+    # Logs may contain message text and metadata from channels the bot can see; tighten retention
+    # or log level in sensitive deployments.
     @app.event("message")
     def handle_message_events(body, logger):
         logger.info(body)
@@ -192,6 +192,7 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread
         logger.info(f"Duplicate app_mention skipped: channel={channel}, ts={event_ts}")
         return
 
+    # Debug / troubleshooting: full mention text at INFO (may contain secrets or PII).
     logger.info(f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={text!r}")
 
     question = extract_question(text)

@@ -237,7 +237,7 @@ def handle_mattermost_mention(
         logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
         return
 
-    # Intentional: log full mention post text at INFO for troubleshooting (may contain secrets/PII).
+    # Debug / troubleshooting: log full mention post text at INFO (may contain secrets or PII).
     logger.info(
         "mattermost mention: channel={} root={} post={} text={!r}",
         ev.channel_id,
@@ -336,6 +336,7 @@ def build_websocket_handler(
     """Return async handler for mattermostdriver websocket."""
 
     async def on_message(message: str) -> None:
+        # Debug only: MATTERMOST_LOG_RAW_WEBSOCKET dumps WebSocket payloads (may include tokens or message bodies).
         if mm_cfg.log_raw_websocket:
             logger.info("mattermost websocket raw: {}", message[:4000])
         try:
