@@ -65,6 +65,11 @@ def mattermost_broadcast_mentions_bot(data: dict, bot_user_id: str) -> bool:
     return bool(ids and bot_user_id in ids)
 
 
+def mattermost_is_direct_message_channel(data: dict) -> bool:
+    """Whether ``posted`` event ``data`` is a 1:1 DM channel (no ``@userid`` in body, but addressed to the bot)."""
+    return str(data.get("channel_type") or "").upper() == "D"
+
+
 def mattermost_post_mentions_bot(post: dict, bot_user_id: str) -> bool:
     """Whether the post targets the bot (message token and/or ``props`` mention metadata)."""
     message = str(post.get("message") or "")
@@ -118,7 +123,11 @@ def mattermost_posted_event_from_broadcast(
     user_id = str(post.get("user_id") or "")
     if user_id == bot_user_id:
         return None
-    if not mattermost_post_mentions_bot(post, bot_user_id) and not mattermost_broadcast_mentions_bot(data, bot_user_id):
+    if (
+        not mattermost_post_mentions_bot(post, bot_user_id)
+        and not mattermost_broadcast_mentions_bot(data, bot_user_id)
+        and not mattermost_is_direct_message_channel(data)
+    ):
         return None
     root_post_id = mattermost_root_post_id(post)
     if not channel_id or not post_id or not root_post_id:

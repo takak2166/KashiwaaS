@@ -83,6 +83,23 @@ def test_mattermost_posted_event_from_broadcast_string_post() -> None:
     assert "tuples" in ev.raw_text
 
 
+def test_mattermost_posted_event_direct_message_without_at_mention() -> None:
+    """DM posts often omit @userid in the body; treat as addressed to the bot."""
+    uid = "botx"
+    post_obj = {
+        "id": "post1",
+        "channel_id": "ch1",
+        "user_id": "human",
+        "message": "こんばんは",
+        "root_id": "",
+        "props": {},
+    }
+    data = {"channel_type": "D", "post": json.dumps(post_obj)}
+    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid)
+    assert ev is not None
+    assert ev.raw_text == "こんばんは"
+
+
 def test_mattermost_posted_event_from_broadcast_top_level_mentions_string() -> None:
     uid = "botx"
     post_obj = {
