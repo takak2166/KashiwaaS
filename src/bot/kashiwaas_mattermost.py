@@ -5,6 +5,7 @@ Run as ``python -m src.bot.kashiwaas_mattermost``. Operate one process per bot t
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import threading
@@ -314,6 +315,12 @@ def main() -> None:
         thread_store=thread_store,
     )
     logger.info("KashiwaaS Mattermost bot starting (WebSocket)...")
+    # mattermostdriver calls asyncio.get_event_loop(); CPython 3.12+ does not create
+    # a default loop on the main thread, so set one before init_websocket.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
     driver.init_websocket(handler)
 
 
