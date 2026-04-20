@@ -66,7 +66,7 @@ jobs:
               mock_d.client.userid = "resolved-bot-user-id"
               mock_d.client.username = "mm_bot"
               mock_driver.return_value = mock_d
-              _mm, d, _cc, _ts, _mmc, _mn = mm_bot.create_mattermost_stack(
+              _mm, d, _cc, _ts, _mmc, _bu = mm_bot.create_mattermost_stack(
                   load_config(
                       {
                           "MATTERMOST_URL": "https://mm.example.com",

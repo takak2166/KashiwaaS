@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Sequence
 
 MENTION_PATTERN = re.compile(r"<@[\w]+>")
 
@@ -19,17 +18,13 @@ def mattermost_bot_mention_pattern(bot_user_id: str) -> re.Pattern[str]:
 
 def mattermost_bot_mention_strip_patterns(
     bot_user_id: str,
-    mention_names: Sequence[str],
+    bot_username: str,
 ) -> tuple[re.Pattern[str], ...]:
-    """Patterns for stripping bot triggers from message text (id + optional ``@username``)."""
+    """Patterns for stripping ``@userid`` and optional ``@username`` from message text."""
     pats: list[re.Pattern[str]] = [mattermost_bot_mention_pattern(bot_user_id)]
-    seen = {bot_user_id}
-    for name in mention_names:
-        n = str(name).strip()
-        if not n or n in seen:
-            continue
-        seen.add(n)
-        pats.append(re.compile(rf"@({re.escape(n)})\b"))
+    u = (bot_username or "").strip()
+    if u and u != bot_user_id:
+        pats.append(re.compile(rf"@({re.escape(u)})\b"))
     return tuple(pats)
 
 
@@ -99,15 +94,14 @@ def mattermost_post_mentions_bot(
     post: dict,
     bot_user_id: str,
     *,
-    mention_names: Sequence[str] = (),
+    bot_username: str = "",
 ) -> bool:
     """Whether the post targets the bot (message token and/or ``props`` mention metadata)."""
     message = str(post.get("message") or "")
     if f"@{bot_user_id}" in message:
         return True
-    for n in mention_names:
-        if mattermost_message_has_at_username(message, str(n)):
-            return True
+    if mattermost_message_has_at_username(message, bot_username):
+        return True
     props = post.get("props")
     if not isinstance(props, dict):
         return False
@@ -130,7 +124,7 @@ def mattermost_posted_event_from_broadcast(
     data: dict,
     *,
     bot_user_id: str,
-    mention_names: Sequence[str] = (),
+    bot_username: str = "",
 ) -> MattermostPostedEvent | None:
     """
     Parse ``posted`` event ``data`` (decoded JSON object).
@@ -158,7 +152,7 @@ def mattermost_posted_event_from_broadcast(
     if user_id == bot_user_id:
         return None
     if (
-        not mattermost_post_mentions_bot(post, bot_user_id, mention_names=mention_names)
+        not mattermost_post_mentions_bot(post, bot_user_id, bot_username=bot_username)
         and not mattermost_broadcast_mentions_bot(data, bot_user_id)
         and not mattermost_is_direct_message_channel(data)
     ):
@@ -193,11 +187,11 @@ def extract_question(text: str) -> str:
 def extract_question_mattermost(
     text: str,
     bot_user_id: str,
-    mention_names: Sequence[str] = (),
+    bot_username: str = "",
 ) -> str:
     """Remove Mattermost ``@userid`` / ``@username`` bot triggers and normalize whitespace."""
     out = text
-    for pat in mattermost_bot_mention_strip_patterns(bot_user_id, mention_names):
+    for pat in mattermost_bot_mention_strip_patterns(bot_user_id, bot_username):
         out = pat.sub("", out)
     return out.strip()
 

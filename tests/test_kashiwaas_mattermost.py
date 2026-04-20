@@ -91,8 +91,14 @@ def test_extract_question_mattermost() -> None:
 
 def test_extract_question_mattermost_strips_username_mention() -> None:
     uid = "botuserid"
-    q = extract_question_mattermost("@kashiwaas hello there", uid, mention_names=("kashiwaas",))
+    q = extract_question_mattermost("@kashiwaas hello there", uid, bot_username="kashiwaas")
     assert q == "hello there"
+
+
+def test_extract_question_mattermost_username_same_as_id_no_double_strip() -> None:
+    uid = "same"
+    q = extract_question_mattermost("@same hi", uid, bot_username="same")
+    assert q == "hi"
 
 
 def test_mattermost_post_mentions_bot_by_at_id() -> None:
@@ -105,7 +111,7 @@ def test_mattermost_post_mentions_bot_by_at_configured_username() -> None:
     assert mattermost_post_mentions_bot(
         {"message": "@kashiwaas ping"},
         uid,
-        mention_names=("kashiwaas",),
+        bot_username="kashiwaas",
     ) is True
 
 
@@ -138,7 +144,7 @@ def test_mattermost_posted_event_open_channel_at_username_only() -> None:
         "props": {},
     }
     data = {"channel_type": "O", "post": json.dumps(post_obj)}
-    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid, mention_names=("kashiwaas",))
+    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid, bot_username="kashiwaas")
     assert ev is not None
     assert ev.raw_text == "@kashiwaas what is 2+2?"
 

@@ -224,12 +224,12 @@ def handle_mattermost_mention(
     cursor_client: CursorClient,
     thread_store: ThreadStore,
     bot_user_id: str,
-    mention_names: tuple[str, ...] = (),
+    bot_username: str = "",
 ) -> None:
     """Process a normalized Mattermost mention (runs reply in a background thread)."""
     thread_key = f"{ev.channel_id}:{ev.root_post_id}"
     text = ev.raw_text
-    question = extract_question_mattermost(text, bot_user_id, mention_names=mention_names)
+    question = extract_question_mattermost(text, bot_user_id, bot_username=bot_username)
 
     if _is_duplicate_event(ev.channel_id, ev.event_post_id):
         logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
@@ -245,7 +245,7 @@ def handle_mattermost_mention(
     )
 
     if not question:
-        hint = f"@{mention_names[0]}" if mention_names else f"@{bot_user_id}"
+        hint = f"@{bot_username}" if (bot_username or "").strip() else f"@{bot_user_id}"
         mm.create_post(
             ev.channel_id,
             f"Please enter a question. Example: `{hint} How do I use Python async?`",
@@ -329,7 +329,7 @@ def build_websocket_handler(
     mm_client: MattermostBotClient,
     cursor_client: CursorClient,
     thread_store: ThreadStore,
-    mention_names: tuple[str, ...],
+    bot_username: str,
 ):
     """Return async handler for mattermostdriver websocket."""
 
@@ -348,7 +348,7 @@ def build_websocket_handler(
         ev = mattermost_posted_event_from_broadcast(
             data,
             bot_user_id=mm_cfg.bot_user_id,
-            mention_names=mention_names,
+            bot_username=bot_username,
         )
         if ev is None:
             return
@@ -358,36 +358,26 @@ def build_websocket_handler(
             cursor_client=cursor_client,
             thread_store=thread_store,
             bot_user_id=mm_cfg.bot_user_id,
-            mention_names=mention_names,
+            bot_username=bot_username,
         )
 
     return on_message
 
 
-def _mattermost_effective_mention_names(mm_cfg: MattermostConfig, driver: Driver) -> tuple[str, ...]:
-    """Usernames that appear as ``@name`` in channel posts (API username + optional env list)."""
-    names: list[str] = []
-    seen: set[str] = set()
-    api_username = getattr(getattr(driver, "client", None), "username", None)
-    if isinstance(api_username, str) and api_username.strip():
-        names.append(api_username.strip())
-        seen.add(api_username.strip())
-    for n in mm_cfg.bot_mention_names:
-        s = str(n).strip()
-        if s and s not in seen:
-            names.append(s)
-            seen.add(s)
-    return tuple(names)
+def _mattermost_bot_username(driver: Driver) -> str:
+    """Login username for ``@name`` in open-channel posts (from PAT / users/me)."""
+    u = getattr(getattr(driver, "client", None), "username", None)
+    return u.strip() if isinstance(u, str) else ""
 
 
 def create_mattermost_stack(
     cfg: AppConfig,
-) -> tuple[MattermostConfig, Driver, CursorClient, ThreadStore, MattermostBotClient, tuple[str, ...]]:
+) -> tuple[MattermostConfig, Driver, CursorClient, ThreadStore, MattermostBotClient, str]:
     mm_cfg = _require_mattermost_bot_config(cfg)
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
     mm_cfg = _resolve_mattermost_bot_user_id(mm_cfg, driver)
-    mention_names = _mattermost_effective_mention_names(mm_cfg, driver)
+    bot_username = _mattermost_bot_username(driver)
     mm_client = MattermostBotClient(driver)
     cursor_client = CursorClient(
         api_key=cfg.cursor.api_key,
@@ -403,7 +393,7 @@ def create_mattermost_stack(
         conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
     thread_store = ThreadStore(cfg.valkey, key_prefix="mm:")
-    return mm_cfg, driver, cursor_client, thread_store, mm_client, mention_names
+    return mm_cfg, driver, cursor_client, thread_store, mm_client, bot_username
 
 
 def main() -> None:
@@ -411,7 +401,7 @@ def main() -> None:
     cfg = load_config()
     init_alerter(cfg)
     try:
-        mm_cfg, driver, cursor_client, thread_store, mm_client, mention_names = create_mattermost_stack(cfg)
+        mm_cfg, driver, cursor_client, thread_store, mm_client, bot_username = create_mattermost_stack(cfg)
     except ConfigError as e:
         logger.error("{}", e)
         sys.exit(1)
@@ -421,7 +411,7 @@ def main() -> None:
         mm_client=mm_client,
         cursor_client=cursor_client,
         thread_store=thread_store,
-        mention_names=mention_names,
+        bot_username=bot_username,
     )
     logger.info("KashiwaaS Mattermost bot starting (WebSocket)...")
     # mattermostdriver calls asyncio.get_event_loop(); CPython 3.12+ does not create
