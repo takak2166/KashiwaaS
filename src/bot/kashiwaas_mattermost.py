@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import ssl
 import sys
 import threading
 import time
@@ -14,7 +16,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+import websockets
 from mattermostdriver import Driver
+from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
 
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
@@ -39,6 +43,16 @@ MM_MESSAGE_MAX_LEN = 16000
 
 _processed_events: dict[tuple[str, str], float] = {}
 _processed_events_lock = threading.Lock()
+
+_mm_driver_ws_log = logging.getLogger("mattermostdriver.websocket")
+
+
+def _mattermost_wss_ssl_context(verify_tls: bool) -> ssl.SSLContext:
+    ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+    if not verify_tls:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 @dataclass
@@ -98,6 +112,55 @@ def _is_duplicate_event(channel_id: str, post_id: str) -> bool:
             return True
         _processed_events[key] = now
         return False
+
+
+class _MattermostWebsocketClientTls(MattermostDriverWebsocket):
+    """Use a client TLS context for wss (upstream used ``Purpose.CLIENT_AUTH``).
+
+    mattermostdriver 7.x ``websocket.py`` calls ``ssl.create_default_context`` with
+    ``Purpose.CLIENT_AUTH``, which yields a server-role context; Python 3.14 then
+    fails connecting with ``PROTOCOL_TLS_SERVER``. This class matches upstream
+    ``connect`` except for the SSL purpose (and ``check_hostname`` when verify is off).
+    """
+
+    async def connect(self, event_handler: Any) -> None:
+        scheme = "wss://"
+        if self.options["scheme"] == "https":
+            context: ssl.SSLContext | None = _mattermost_wss_ssl_context(self.options["verify"])
+        else:
+            scheme = "ws://"
+            context = None
+
+        url = "{scheme:s}{url:s}:{port:s}{basepath:s}/websocket".format(
+            scheme=scheme,
+            url=self.options["url"],
+            port=str(self.options["port"]),
+            basepath=self.options["basepath"],
+        )
+
+        self._alive = True
+
+        while True:
+            try:
+                kw_args = {}
+                if self.options["websocket_kw_args"] is not None:
+                    kw_args = self.options["websocket_kw_args"]
+                websocket = await websockets.connect(
+                    url,
+                    ssl=context,
+                    **kw_args,
+                )
+                await self._authenticate_websocket(websocket, event_handler)
+                while self._alive:
+                    try:
+                        await self._start_loop(websocket, event_handler)
+                    except websockets.ConnectionClosedError:
+                        break
+                if (not self.options["keepalive"]) or (not self._alive):
+                    break
+            except Exception as e:
+                _mm_driver_ws_log.warning("Failed to establish websocket connection: %s", e)
+                await asyncio.sleep(self.options["keepalive_delay"])
 
 
 def _mattermost_driver_options(mm: MattermostConfig) -> dict[str, Any]:
@@ -321,7 +384,7 @@ def main() -> None:
         asyncio.get_running_loop()
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
-    driver.init_websocket(handler)
+    driver.init_websocket(handler, websocket_cls=_MattermostWebsocketClientTls)
 
 
 if __name__ == "__main__":

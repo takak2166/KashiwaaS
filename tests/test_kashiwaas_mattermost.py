@@ -1,6 +1,7 @@
 """Tests for Mattermost KashiwaaS bot helpers and handler wiring."""
 
 import json
+import ssl
 from unittest.mock import MagicMock, patch
 
 from src.bot import kashiwaas_mattermost as mm_bot
@@ -13,6 +14,17 @@ from src.bot.kashiwaas_mention import (
     mattermost_root_post_id,
 )
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus
+
+
+def test_mattermost_wss_ssl_context_verify_on() -> None:
+    ctx = mm_bot._mattermost_wss_ssl_context(True)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_mattermost_wss_ssl_context_verify_off() -> None:
+    ctx = mm_bot._mattermost_wss_ssl_context(False)
+    assert ctx.verify_mode == ssl.CERT_NONE
+    assert ctx.check_hostname is False
 
 
 def test_mattermost_root_post_id_thread_reply() -> None:
