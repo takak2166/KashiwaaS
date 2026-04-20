@@ -154,7 +154,8 @@ class _MattermostWebsocketClientTls(MattermostDriverWebsocket):
                 while self._alive:
                     try:
                         await self._start_loop(websocket, event_handler)
-                    except websockets.ConnectionClosedError:
+                    except websockets.ConnectionClosed:
+                        # Normal close (ConnectionClosedOK) and errors (ConnectionClosedError).
                         break
                 if (not self.options["keepalive"]) or (not self._alive):
                     break
