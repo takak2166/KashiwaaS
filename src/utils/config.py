@@ -104,6 +104,8 @@ class MattermostConfig:
     driver_port: int
     verify_tls: bool = True
     log_raw_websocket: bool = False
+    # Extra @name tokens for open-channel mentions (env MATTERMOST_BOT_USERNAME, comma-separated).
+    bot_mention_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -234,6 +236,10 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             "yes",
             "on",
         )
+        mm_names_raw = _get_str(e, "MATTERMOST_BOT_USERNAME", "") or ""
+        bot_mention_names = tuple(
+            p.strip() for p in mm_names_raw.split(",") if p.strip()
+        )
         mattermost = MattermostConfig(
             url=mm_url_raw,
             pat=mm_pat,
@@ -243,6 +249,7 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             driver_port=port,
             verify_tls=verify_tls,
             log_raw_websocket=log_raw,
+            bot_mention_names=bot_mention_names,
         )
 
     return AppConfig(

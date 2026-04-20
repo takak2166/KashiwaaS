@@ -115,6 +115,7 @@ def test_load_config_mattermost_full() -> None:
             "MATTERMOST_BOT_USER_ID": "uid1",
             "MATTERMOST_VERIFY_TLS": "false",
             "MATTERMOST_LOG_RAW_WEBSOCKET": "true",
+            "MATTERMOST_BOT_USERNAME": " kashiwaas , other ",
         }
     )
     assert cfg.mattermost is not None
@@ -122,6 +123,7 @@ def test_load_config_mattermost_full() -> None:
     assert cfg.mattermost.driver_port == 443
     assert cfg.mattermost.verify_tls is False
     assert cfg.mattermost.log_raw_websocket is True
+    assert cfg.mattermost.bot_mention_names == ("kashiwaas", "other")
 
 
 @pytest.mark.parametrize(

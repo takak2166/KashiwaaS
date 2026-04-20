@@ -41,9 +41,24 @@ def test_extract_question_mattermost() -> None:
     assert q == "what is asyncio?"
 
 
+def test_extract_question_mattermost_strips_username_mention() -> None:
+    uid = "botuserid"
+    q = extract_question_mattermost("@kashiwaas hello there", uid, mention_names=("kashiwaas",))
+    assert q == "hello there"
+
+
 def test_mattermost_post_mentions_bot_by_at_id() -> None:
     uid = "u1"
     assert mattermost_post_mentions_bot({"message": f"hello @{uid} there"}, uid) is True
+
+
+def test_mattermost_post_mentions_bot_by_at_configured_username() -> None:
+    uid = "longid"
+    assert mattermost_post_mentions_bot(
+        {"message": "@kashiwaas ping"},
+        uid,
+        mention_names=("kashiwaas",),
+    ) is True
 
 
 def test_mattermost_post_mentions_bot_via_props() -> None:
@@ -62,6 +77,22 @@ def test_mattermost_broadcast_mentions_bot_json_string() -> None:
     uid = "botx"
     assert mattermost_broadcast_mentions_bot({"mentions": json.dumps([uid, "other"])}, uid) is True
     assert mattermost_broadcast_mentions_bot({"mentions": json.dumps(["other"])}, uid) is False
+
+
+def test_mattermost_posted_event_open_channel_at_username_only() -> None:
+    uid = "botuserid"
+    post_obj = {
+        "id": "post1",
+        "channel_id": "ch1",
+        "user_id": "human",
+        "message": "@kashiwaas what is 2+2?",
+        "root_id": "",
+        "props": {},
+    }
+    data = {"channel_type": "O", "post": json.dumps(post_obj)}
+    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid, mention_names=("kashiwaas",))
+    assert ev is not None
+    assert ev.raw_text == "@kashiwaas what is 2+2?"
 
 
 def test_mattermost_posted_event_from_broadcast_string_post() -> None:
