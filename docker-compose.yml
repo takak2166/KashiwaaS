@@ -9,6 +9,8 @@ services:
       elasticsearch:
         condition: service_healthy
   
+  # Dev-oriented template: security off and host port published. Do not expose :9200 to the internet
+  # or reuse this compose file as-is for production (enable auth/TLS and restrict bind addresses).
   elasticsearch:
     build: ./elasticsearch
     environment:
@@ -58,6 +60,18 @@ services:
   bot:
     build: .
     command: ["poetry", "run", "python", "-m", "src.bot.kashiwaas"]
+    environment:
+      - TZ=Asia/Tokyo
+    env_file:
+      - .env
+    depends_on:
+      - valkey
+    restart: unless-stopped
+
+  kashiwaas-mattermost:
+    profiles: ["mattermost"]
+    build: .
+    command: ["poetry", "run", "python", "-m", "src.bot.kashiwaas_mattermost"]
     environment:
       - TZ=Asia/Tokyo
     env_file:

@@ -49,9 +49,10 @@ jobs:
       - name: Bot startup smoke check
         run: |
           poetry run python - <<'PY'
-          from unittest.mock import patch
+          from unittest.mock import MagicMock, patch
 
           from src.bot import kashiwaas
+          from src.bot import kashiwaas_mattermost as mm_bot
           from src.utils.config import load_config
 
           with patch.object(kashiwaas, "App") as mock_app:
@@ -59,6 +60,22 @@ jobs:
               app = kashiwaas.create_app(cfg)
               assert app is not None
               assert mock_app.called
+
+          with patch.object(mm_bot, "Driver") as mock_driver:
+              mock_d = MagicMock()
+              mock_driver.return_value = mock_d
+              _mm, d, _cc, _ts, _mmc = mm_bot.create_mattermost_stack(
+                  load_config(
+                      {
+                          "MATTERMOST_URL": "https://mm.example.com",
+                          "MATTERMOST_PAT": "pat",
+                          "MATTERMOST_BOT_USER_ID": "botuid",
+                          "CURSOR_API_KEY": "k",
+                      }
+                  )
+              )
+              assert d is mock_d
+              mock_d.login.assert_called_once()
           PY
         env:
           SLACK_BOT_TOKEN: "xoxb-dummy"
