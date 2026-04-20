@@ -4,6 +4,8 @@ import json
 import ssl
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.bot import kashiwaas_mattermost as mm_bot
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
@@ -14,6 +16,7 @@ from src.bot.kashiwaas_mention import (
     mattermost_root_post_id,
 )
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus
+from src.utils.config import ConfigError, MattermostConfig
 
 
 def test_mattermost_wss_ssl_context_verify_on() -> None:
@@ -25,6 +28,51 @@ def test_mattermost_wss_ssl_context_verify_off() -> None:
     ctx = mm_bot._mattermost_wss_ssl_context(False)
     assert ctx.verify_mode == ssl.CERT_NONE
     assert ctx.check_hostname is False
+
+
+def test_resolve_mattermost_bot_user_id_from_pat() -> None:
+    driver = MagicMock()
+    driver.client.userid = "mm-real-id"
+    mm_cfg = MattermostConfig(
+        url="https://mm.example.com",
+        pat="pat",
+        bot_user_id="",
+        driver_scheme="https",
+        driver_host="mm.example.com",
+        driver_port=443,
+    )
+    out = mm_bot._resolve_mattermost_bot_user_id(mm_cfg, driver)
+    assert out.bot_user_id == "mm-real-id"
+
+
+def test_resolve_mattermost_bot_user_id_env_must_match_pat() -> None:
+    driver = MagicMock()
+    driver.client.userid = "mm-real-id"
+    mm_cfg = MattermostConfig(
+        url="https://mm.example.com",
+        pat="pat",
+        bot_user_id="wrong-id",
+        driver_scheme="https",
+        driver_host="mm.example.com",
+        driver_port=443,
+    )
+    with pytest.raises(ConfigError, match="does not match"):
+        mm_bot._resolve_mattermost_bot_user_id(mm_cfg, driver)
+
+
+def test_resolve_mattermost_bot_user_id_empty_api_raises() -> None:
+    driver = MagicMock()
+    driver.client.userid = ""
+    mm_cfg = MattermostConfig(
+        url="https://mm.example.com",
+        pat="pat",
+        bot_user_id="",
+        driver_scheme="https",
+        driver_host="mm.example.com",
+        driver_port=443,
+    )
+    with pytest.raises(ConfigError, match="did not return a user id"):
+        mm_bot._resolve_mattermost_bot_user_id(mm_cfg, driver)
 
 
 def test_mattermost_root_post_id_thread_reply() -> None:

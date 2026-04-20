@@ -98,6 +98,7 @@ class MattermostConfig:
 
     url: str
     pat: str
+    # May be empty at load time; Mattermost bot resolves from PAT (users/me) after login.
     bot_user_id: str
     driver_scheme: str
     driver_host: str
@@ -214,10 +215,10 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     mm_bot_uid = _get_str(e, "MATTERMOST_BOT_USER_ID")
     mattermost: Optional[MattermostConfig] = None
     if mm_url_raw or mm_pat or mm_bot_uid:
-        if not mm_url_raw or not mm_pat or not mm_bot_uid:
+        if not mm_url_raw or not mm_pat:
             raise ConfigError(
-                "Mattermost is partially configured: set all of MATTERMOST_URL, MATTERMOST_PAT, "
-                "MATTERMOST_BOT_USER_ID (or omit all for Slack-only)"
+                "Mattermost is partially configured: set MATTERMOST_URL and MATTERMOST_PAT together "
+                "(optional MATTERMOST_BOT_USER_ID; omit all Mattermost vars for Slack-only)"
             )
         parsed = urlparse(mm_url_raw if "://" in mm_url_raw else f"https://{mm_url_raw}")
         if not parsed.hostname:
@@ -243,7 +244,7 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
         mattermost = MattermostConfig(
             url=mm_url_raw,
             pat=mm_pat,
-            bot_user_id=mm_bot_uid,
+            bot_user_id=(mm_bot_uid or "").strip(),
             driver_scheme=scheme,
             driver_host=parsed.hostname,
             driver_port=port,

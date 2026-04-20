@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import websockets
@@ -191,11 +191,30 @@ def _post_mm_chunks(mm: MattermostBotClient, channel_id: str, root_id: str, text
 def _require_mattermost_bot_config(cfg: AppConfig) -> MattermostConfig:
     if cfg.mattermost is None:
         raise ConfigError(
-            "Mattermost bot requires MATTERMOST_URL, MATTERMOST_PAT, and MATTERMOST_BOT_USER_ID in the environment."
+            "Mattermost bot requires MATTERMOST_URL and MATTERMOST_PAT in the environment "
+            "(optional MATTERMOST_BOT_USER_ID; resolved from PAT via users/me when unset)."
         )
     if not cfg.cursor.api_key:
         raise ConfigError("CURSOR_API_KEY is required for the Mattermost bot")
     return cfg.mattermost
+
+
+def _resolve_mattermost_bot_user_id(mm_cfg: MattermostConfig, driver: Driver) -> MattermostConfig:
+    """Fill ``bot_user_id`` from PAT login (``/api/v4/users/me``); optional env override must match."""
+    api_id = str(getattr(getattr(driver, "client", None), "userid", None) or "").strip()
+    if not api_id:
+        raise ConfigError(
+            "Mattermost PAT login did not return a user id; check MATTERMOST_URL, MATTERMOST_PAT, and TLS settings."
+        )
+    env_id = (mm_cfg.bot_user_id or "").strip()
+    if env_id and env_id != api_id:
+        raise ConfigError(
+            f"MATTERMOST_BOT_USER_ID ({env_id!r}) does not match the PAT account id ({api_id!r}). "
+            "Unset MATTERMOST_BOT_USER_ID to use the token user, or set it to that id."
+        )
+    if not env_id:
+        logger.info("Mattermost bot user id from PAT (users/me): {}", api_id)
+    return replace(mm_cfg, bot_user_id=api_id)
 
 
 def handle_mattermost_mention(
@@ -367,6 +386,7 @@ def create_mattermost_stack(
     mm_cfg = _require_mattermost_bot_config(cfg)
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
+    mm_cfg = _resolve_mattermost_bot_user_id(mm_cfg, driver)
     mention_names = _mattermost_effective_mention_names(mm_cfg, driver)
     mm_client = MattermostBotClient(driver)
     cursor_client = CursorClient(
