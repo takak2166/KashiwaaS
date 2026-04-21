@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import websockets
+from websockets.asyncio.client import connect as ws_connect
 from mattermostdriver import Driver
 from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
 
@@ -145,18 +146,18 @@ class _MattermostWebsocketClientTls(MattermostDriverWebsocket):
                 kw_args = {}
                 if self.options["websocket_kw_args"] is not None:
                     kw_args = self.options["websocket_kw_args"]
-                websocket = await websockets.connect(
+                async with ws_connect(
                     url,
                     ssl=context,
                     **kw_args,
-                )
-                await self._authenticate_websocket(websocket, event_handler)
-                while self._alive:
-                    try:
-                        await self._start_loop(websocket, event_handler)
-                    except websockets.ConnectionClosed:
-                        # Normal close (ConnectionClosedOK) and errors (ConnectionClosedError).
-                        break
+                ) as websocket:
+                    await self._authenticate_websocket(websocket, event_handler)
+                    while self._alive:
+                        try:
+                            await self._start_loop(websocket, event_handler)
+                        except websockets.ConnectionClosed:
+                            # Normal close (ConnectionClosedOK) and errors (ConnectionClosedError).
+                            break
                 if (not self.options["keepalive"]) or (not self._alive):
                     break
             except Exception as e:
