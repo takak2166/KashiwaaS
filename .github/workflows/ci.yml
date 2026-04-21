@@ -77,6 +77,23 @@ jobs:
               )
               assert d is mock_d
               mock_d.login.assert_called_once()
+              # Ensure the main() path wires websocket_cls correctly.
+              cfg = load_config(
+                  {
+                      "MATTERMOST_URL": "https://mm.example.com",
+                      "MATTERMOST_PAT": "pat",
+                      "CURSOR_API_KEY": "k",
+                  }
+              )
+              with (
+                  patch.object(mm_bot, "apply_dotenv"),
+                  patch.object(mm_bot, "load_config", return_value=cfg),
+                  patch.object(mm_bot, "init_alerter"),
+                  patch.object(mm_bot, "build_websocket_handler", return_value=object()) as mock_build_handler,
+              ):
+                  mm_bot.main()
+                  handler = mock_build_handler.return_value
+                  mock_d.init_websocket.assert_called_once_with(handler, websocket_cls=mm_bot._MattermostWebsocketClientTls)
           PY
         env:
           SLACK_BOT_TOKEN: "xoxb-dummy"
