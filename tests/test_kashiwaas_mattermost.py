@@ -1,7 +1,10 @@
 """Tests for Mattermost KashiwaaS bot helpers and handler wiring."""
 
 import json
+import ssl
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.bot import kashiwaas_mattermost as mm_bot
 from src.bot.kashiwaas_mention import (
@@ -13,6 +16,63 @@ from src.bot.kashiwaas_mention import (
     mattermost_root_post_id,
 )
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus
+from src.utils.config import ConfigError, MattermostConfig
+
+
+def test_mattermost_wss_ssl_context_verify_on() -> None:
+    ctx = mm_bot._mattermost_wss_ssl_context(True)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_mattermost_wss_ssl_context_verify_off() -> None:
+    ctx = mm_bot._mattermost_wss_ssl_context(False)
+    assert ctx.verify_mode == ssl.CERT_NONE
+    assert ctx.check_hostname is False
+
+
+def test_resolve_mattermost_bot_user_id_from_pat() -> None:
+    driver = MagicMock()
+    driver.client.userid = "mm-real-id"
+    mm_cfg = MattermostConfig(
+        url="https://mm.example.com",
+        pat="pat",
+        bot_user_id="",
+        driver_scheme="https",
+        driver_host="mm.example.com",
+        driver_port=443,
+    )
+    out = mm_bot._resolve_mattermost_bot_user_id(mm_cfg, driver)
+    assert out.bot_user_id == "mm-real-id"
+
+
+def test_resolve_mattermost_bot_user_id_env_must_match_pat() -> None:
+    driver = MagicMock()
+    driver.client.userid = "mm-real-id"
+    mm_cfg = MattermostConfig(
+        url="https://mm.example.com",
+        pat="pat",
+        bot_user_id="wrong-id",
+        driver_scheme="https",
+        driver_host="mm.example.com",
+        driver_port=443,
+    )
+    with pytest.raises(ConfigError, match="does not match"):
+        mm_bot._resolve_mattermost_bot_user_id(mm_cfg, driver)
+
+
+def test_resolve_mattermost_bot_user_id_empty_api_raises() -> None:
+    driver = MagicMock()
+    driver.client.userid = ""
+    mm_cfg = MattermostConfig(
+        url="https://mm.example.com",
+        pat="pat",
+        bot_user_id="",
+        driver_scheme="https",
+        driver_host="mm.example.com",
+        driver_port=443,
+    )
+    with pytest.raises(ConfigError, match="did not return a user id"):
+        mm_bot._resolve_mattermost_bot_user_id(mm_cfg, driver)
 
 
 def test_mattermost_root_post_id_thread_reply() -> None:
@@ -29,9 +89,30 @@ def test_extract_question_mattermost() -> None:
     assert q == "what is asyncio?"
 
 
+def test_extract_question_mattermost_strips_username_mention() -> None:
+    uid = "botuserid"
+    q = extract_question_mattermost("@kashiwaas hello there", uid, bot_username="kashiwaas")
+    assert q == "hello there"
+
+
+def test_extract_question_mattermost_username_same_as_id_no_double_strip() -> None:
+    uid = "same"
+    q = extract_question_mattermost("@same hi", uid, bot_username="same")
+    assert q == "hi"
+
+
 def test_mattermost_post_mentions_bot_by_at_id() -> None:
     uid = "u1"
     assert mattermost_post_mentions_bot({"message": f"hello @{uid} there"}, uid) is True
+
+
+def test_mattermost_post_mentions_bot_by_at_configured_username() -> None:
+    uid = "longid"
+    assert mattermost_post_mentions_bot(
+        {"message": "@kashiwaas ping"},
+        uid,
+        bot_username="kashiwaas",
+    ) is True
 
 
 def test_mattermost_post_mentions_bot_via_props() -> None:
@@ -52,6 +133,22 @@ def test_mattermost_broadcast_mentions_bot_json_string() -> None:
     assert mattermost_broadcast_mentions_bot({"mentions": json.dumps(["other"])}, uid) is False
 
 
+def test_mattermost_posted_event_open_channel_at_username_only() -> None:
+    uid = "botuserid"
+    post_obj = {
+        "id": "post1",
+        "channel_id": "ch1",
+        "user_id": "human",
+        "message": "@kashiwaas what is 2+2?",
+        "root_id": "",
+        "props": {},
+    }
+    data = {"channel_type": "O", "post": json.dumps(post_obj)}
+    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid, bot_username="kashiwaas")
+    assert ev is not None
+    assert ev.raw_text == "@kashiwaas what is 2+2?"
+
+
 def test_mattermost_posted_event_from_broadcast_string_post() -> None:
     uid = "botx"
     post_obj = {
@@ -69,6 +166,23 @@ def test_mattermost_posted_event_from_broadcast_string_post() -> None:
     assert ev.root_post_id == "post1"
     assert ev.event_post_id == "post1"
     assert "tuples" in ev.raw_text
+
+
+def test_mattermost_posted_event_direct_message_without_at_mention() -> None:
+    """DM posts often omit @userid in the body; treat as addressed to the bot."""
+    uid = "botx"
+    post_obj = {
+        "id": "post1",
+        "channel_id": "ch1",
+        "user_id": "human",
+        "message": "こんばんは",
+        "root_id": "",
+        "props": {},
+    }
+    data = {"channel_type": "D", "post": json.dumps(post_obj)}
+    ev = mattermost_posted_event_from_broadcast(data, bot_user_id=uid)
+    assert ev is not None
+    assert ev.raw_text == "こんばんは"
 
 
 def test_mattermost_posted_event_from_broadcast_top_level_mentions_string() -> None:

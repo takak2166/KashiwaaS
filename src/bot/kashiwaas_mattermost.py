@@ -5,15 +5,21 @@ Run as ``python -m src.bot.kashiwaas_mattermost``. Operate one process per bot t
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import ssl
 import sys
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+import websockets
+from websockets.asyncio.client import connect as ws_connect
 from mattermostdriver import Driver
+from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
 
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
@@ -38,6 +44,16 @@ MM_MESSAGE_MAX_LEN = 16000
 
 _processed_events: dict[tuple[str, str], float] = {}
 _processed_events_lock = threading.Lock()
+
+_mm_driver_ws_log = logging.getLogger("mattermostdriver.websocket")
+
+
+def _mattermost_wss_ssl_context(verify_tls: bool) -> ssl.SSLContext:
+    ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+    if not verify_tls:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 @dataclass
@@ -99,6 +115,56 @@ def _is_duplicate_event(channel_id: str, post_id: str) -> bool:
         return False
 
 
+class _MattermostWebsocketClientTls(MattermostDriverWebsocket):
+    """Use a client TLS context for wss (upstream used ``Purpose.CLIENT_AUTH``).
+
+    mattermostdriver 7.x ``websocket.py`` calls ``ssl.create_default_context`` with
+    ``Purpose.CLIENT_AUTH``, which yields a server-role context; Python 3.14 then
+    fails connecting with ``PROTOCOL_TLS_SERVER``. This class matches upstream
+    ``connect`` except for the SSL purpose (and ``check_hostname`` when verify is off).
+    """
+
+    async def connect(self, event_handler: Any) -> None:
+        scheme = "wss://"
+        if self.options["scheme"] == "https":
+            context: ssl.SSLContext | None = _mattermost_wss_ssl_context(self.options["verify"])
+        else:
+            scheme = "ws://"
+            context = None
+
+        url = "{scheme:s}{url:s}:{port:s}{basepath:s}/websocket".format(
+            scheme=scheme,
+            url=self.options["url"],
+            port=str(self.options["port"]),
+            basepath=self.options["basepath"],
+        )
+
+        self._alive = True
+
+        while True:
+            try:
+                kw_args = {}
+                if self.options["websocket_kw_args"] is not None:
+                    kw_args = self.options["websocket_kw_args"]
+                async with ws_connect(
+                    url,
+                    ssl=context,
+                    **kw_args,
+                ) as websocket:
+                    await self._authenticate_websocket(websocket, event_handler)
+                    while self._alive:
+                        try:
+                            await self._start_loop(websocket, event_handler)
+                        except websockets.ConnectionClosed:
+                            # Normal close (ConnectionClosedOK) and errors (ConnectionClosedError).
+                            break
+                if (not self.options["keepalive"]) or (not self._alive):
+                    break
+            except Exception as e:
+                _mm_driver_ws_log.warning("Failed to establish websocket connection: %s", e)
+                await asyncio.sleep(self.options["keepalive_delay"])
+
+
 def _mattermost_driver_options(mm: MattermostConfig) -> dict[str, Any]:
     return {
         "scheme": mm.driver_scheme,
@@ -127,11 +193,30 @@ def _post_mm_chunks(mm: MattermostBotClient, channel_id: str, root_id: str, text
 def _require_mattermost_bot_config(cfg: AppConfig) -> MattermostConfig:
     if cfg.mattermost is None:
         raise ConfigError(
-            "Mattermost bot requires MATTERMOST_URL, MATTERMOST_PAT, and MATTERMOST_BOT_USER_ID in the environment."
+            "Mattermost bot requires MATTERMOST_URL and MATTERMOST_PAT in the environment "
+            "(optional MATTERMOST_BOT_USER_ID; resolved from PAT via users/me when unset)."
         )
     if not cfg.cursor.api_key:
         raise ConfigError("CURSOR_API_KEY is required for the Mattermost bot")
     return cfg.mattermost
+
+
+def _resolve_mattermost_bot_user_id(mm_cfg: MattermostConfig, driver: Driver) -> MattermostConfig:
+    """Fill ``bot_user_id`` from PAT login (``/api/v4/users/me``); optional env override must match."""
+    api_id = str(getattr(getattr(driver, "client", None), "userid", None) or "").strip()
+    if not api_id:
+        raise ConfigError(
+            "Mattermost PAT login did not return a user id; check MATTERMOST_URL, MATTERMOST_PAT, and TLS settings."
+        )
+    env_id = (mm_cfg.bot_user_id or "").strip()
+    if env_id and env_id != api_id:
+        raise ConfigError(
+            f"MATTERMOST_BOT_USER_ID ({env_id!r}) does not match the PAT account id ({api_id!r}). "
+            "Unset MATTERMOST_BOT_USER_ID to use the token user, or set it to that id."
+        )
+    if not env_id:
+        logger.info("Mattermost bot user id from PAT (users/me): {}", api_id)
+    return replace(mm_cfg, bot_user_id=api_id)
 
 
 def handle_mattermost_mention(
@@ -141,11 +226,12 @@ def handle_mattermost_mention(
     cursor_client: CursorClient,
     thread_store: ThreadStore,
     bot_user_id: str,
+    bot_username: str = "",
 ) -> None:
     """Process a normalized Mattermost mention (runs reply in a background thread)."""
     thread_key = f"{ev.channel_id}:{ev.root_post_id}"
     text = ev.raw_text
-    question = extract_question_mattermost(text, bot_user_id)
+    question = extract_question_mattermost(text, bot_user_id, bot_username=bot_username)
 
     if _is_duplicate_event(ev.channel_id, ev.event_post_id):
         logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
@@ -161,9 +247,10 @@ def handle_mattermost_mention(
     )
 
     if not question:
+        hint = f"@{bot_username}" if (bot_username or "").strip() else f"@{bot_user_id}"
         mm.create_post(
             ev.channel_id,
-            "Please enter a question. Example: `@botuserid How do I use Python async?`",
+            f"Please enter a question. Example: `{hint} How do I use Python async?`",
             root_id=ev.root_post_id,
         )
         return
@@ -244,6 +331,7 @@ def build_websocket_handler(
     mm_client: MattermostBotClient,
     cursor_client: CursorClient,
     thread_store: ThreadStore,
+    bot_username: str,
 ):
     """Return async handler for mattermostdriver websocket."""
 
@@ -259,7 +347,11 @@ def build_websocket_handler(
         data = _decode_posted_data(payload.get("data"))
         if not data:
             return
-        ev = mattermost_posted_event_from_broadcast(data, bot_user_id=mm_cfg.bot_user_id)
+        ev = mattermost_posted_event_from_broadcast(
+            data,
+            bot_user_id=mm_cfg.bot_user_id,
+            bot_username=bot_username,
+        )
         if ev is None:
             return
         handle_mattermost_mention(
@@ -268,17 +360,26 @@ def build_websocket_handler(
             cursor_client=cursor_client,
             thread_store=thread_store,
             bot_user_id=mm_cfg.bot_user_id,
+            bot_username=bot_username,
         )
 
     return on_message
 
 
+def _mattermost_bot_username(driver: Driver) -> str:
+    """Login username for ``@name`` in open-channel posts (from PAT / users/me)."""
+    u = getattr(getattr(driver, "client", None), "username", None)
+    return u.strip() if isinstance(u, str) else ""
+
+
 def create_mattermost_stack(
     cfg: AppConfig,
-) -> tuple[MattermostConfig, Driver, CursorClient, ThreadStore, MattermostBotClient]:
+) -> tuple[MattermostConfig, Driver, CursorClient, ThreadStore, MattermostBotClient, str]:
     mm_cfg = _require_mattermost_bot_config(cfg)
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
+    mm_cfg = _resolve_mattermost_bot_user_id(mm_cfg, driver)
+    bot_username = _mattermost_bot_username(driver)
     mm_client = MattermostBotClient(driver)
     cursor_client = CursorClient(
         api_key=cfg.cursor.api_key,
@@ -294,7 +395,7 @@ def create_mattermost_stack(
         conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
     thread_store = ThreadStore(cfg.valkey, key_prefix="mm:")
-    return mm_cfg, driver, cursor_client, thread_store, mm_client
+    return mm_cfg, driver, cursor_client, thread_store, mm_client, bot_username
 
 
 def main() -> None:
@@ -302,7 +403,7 @@ def main() -> None:
     cfg = load_config()
     init_alerter(cfg)
     try:
-        mm_cfg, driver, cursor_client, thread_store, mm_client = create_mattermost_stack(cfg)
+        mm_cfg, driver, cursor_client, thread_store, mm_client, bot_username = create_mattermost_stack(cfg)
     except ConfigError as e:
         logger.error("{}", e)
         sys.exit(1)
@@ -312,9 +413,16 @@ def main() -> None:
         mm_client=mm_client,
         cursor_client=cursor_client,
         thread_store=thread_store,
+        bot_username=bot_username,
     )
     logger.info("KashiwaaS Mattermost bot starting (WebSocket)...")
-    driver.init_websocket(handler)
+    # mattermostdriver calls asyncio.get_event_loop(); CPython 3.12+ does not create
+    # a default loop on the main thread, so set one before init_websocket.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+    driver.init_websocket(handler, websocket_cls=_MattermostWebsocketClientTls)
 
 
 if __name__ == "__main__":

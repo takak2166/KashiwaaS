@@ -16,6 +16,18 @@ def mattermost_bot_mention_pattern(bot_user_id: str) -> re.Pattern[str]:
     return re.compile(rf"@({re.escape(bot_user_id)})\b")
 
 
+def mattermost_bot_mention_strip_patterns(
+    bot_user_id: str,
+    bot_username: str,
+) -> tuple[re.Pattern[str], ...]:
+    """Patterns for stripping ``@userid`` and optional ``@username`` from message text."""
+    pats: list[re.Pattern[str]] = [mattermost_bot_mention_pattern(bot_user_id)]
+    u = (bot_username or "").strip()
+    if u and u != bot_user_id:
+        pats.append(re.compile(rf"@({re.escape(u)})\b"))
+    return tuple(pats)
+
+
 @dataclass(frozen=True)
 class SlackMentionEvent:
     """Normalized fields from a Slack ``app_mention`` payload."""
@@ -65,10 +77,30 @@ def mattermost_broadcast_mentions_bot(data: dict, bot_user_id: str) -> bool:
     return bool(ids and bot_user_id in ids)
 
 
-def mattermost_post_mentions_bot(post: dict, bot_user_id: str) -> bool:
+def mattermost_is_direct_message_channel(data: dict) -> bool:
+    """Whether ``posted`` event ``data`` is a 1:1 DM channel (no ``@userid`` in body, but addressed to the bot)."""
+    return str(data.get("channel_type") or "").upper() == "D"
+
+
+def mattermost_message_has_at_username(message: str, username: str) -> bool:
+    """Whether ``message`` contains ``@username`` as a Mattermost-style token (word boundary)."""
+    u = username.strip()
+    if not u:
+        return False
+    return re.search(rf"@{re.escape(u)}\b", message) is not None
+
+
+def mattermost_post_mentions_bot(
+    post: dict,
+    bot_user_id: str,
+    *,
+    bot_username: str = "",
+) -> bool:
     """Whether the post targets the bot (message token and/or ``props`` mention metadata)."""
     message = str(post.get("message") or "")
     if f"@{bot_user_id}" in message:
+        return True
+    if mattermost_message_has_at_username(message, bot_username):
         return True
     props = post.get("props")
     if not isinstance(props, dict):
@@ -92,6 +124,7 @@ def mattermost_posted_event_from_broadcast(
     data: dict,
     *,
     bot_user_id: str,
+    bot_username: str = "",
 ) -> MattermostPostedEvent | None:
     """
     Parse ``posted`` event ``data`` (decoded JSON object).
@@ -118,7 +151,11 @@ def mattermost_posted_event_from_broadcast(
     user_id = str(post.get("user_id") or "")
     if user_id == bot_user_id:
         return None
-    if not mattermost_post_mentions_bot(post, bot_user_id) and not mattermost_broadcast_mentions_bot(data, bot_user_id):
+    if (
+        not mattermost_post_mentions_bot(post, bot_user_id, bot_username=bot_username)
+        and not mattermost_broadcast_mentions_bot(data, bot_user_id)
+        and not mattermost_is_direct_message_channel(data)
+    ):
         return None
     root_post_id = mattermost_root_post_id(post)
     if not channel_id or not post_id or not root_post_id:
@@ -147,9 +184,16 @@ def extract_question(text: str) -> str:
     return MENTION_PATTERN.sub("", text).strip()
 
 
-def extract_question_mattermost(text: str, bot_user_id: str) -> str:
-    """Remove Mattermost ``@userid`` bot mentions and normalize whitespace."""
-    return mattermost_bot_mention_pattern(bot_user_id).sub("", text).strip()
+def extract_question_mattermost(
+    text: str,
+    bot_user_id: str,
+    bot_username: str = "",
+) -> str:
+    """Remove Mattermost ``@userid`` / ``@username`` bot triggers and normalize whitespace."""
+    out = text
+    for pat in mattermost_bot_mention_strip_patterns(bot_user_id, bot_username):
+        out = pat.sub("", out)
+    return out.strip()
 
 
 def is_duplicate_assistant_reply(

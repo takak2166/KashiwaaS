@@ -103,8 +103,13 @@ def test_load_config_valkey_ttl_above_max_raises_config_error() -> None:
 
 
 def test_load_config_mattermost_partial_raises() -> None:
-    with pytest.raises(ConfigError, match="Mattermost is partially configured"):
+    with pytest.raises(ConfigError, match="MATTERMOST_URL and MATTERMOST_PAT"):
         load_config({"MATTERMOST_URL": "https://mm.example.com"})
+
+
+def test_load_config_mattermost_pat_without_url_raises() -> None:
+    with pytest.raises(ConfigError, match="MATTERMOST_URL and MATTERMOST_PAT"):
+        load_config({"MATTERMOST_PAT": "patonly"})
 
 
 def test_load_config_mattermost_full() -> None:
@@ -122,6 +127,12 @@ def test_load_config_mattermost_full() -> None:
     assert cfg.mattermost.driver_port == 443
     assert cfg.mattermost.verify_tls is False
     assert cfg.mattermost.log_raw_websocket is True
+
+
+def test_load_config_mattermost_url_and_pat_only() -> None:
+    cfg = load_config({"MATTERMOST_URL": "https://mm.example.com", "MATTERMOST_PAT": "pat"})
+    assert cfg.mattermost is not None
+    assert cfg.mattermost.bot_user_id == ""
 
 
 @pytest.mark.parametrize(

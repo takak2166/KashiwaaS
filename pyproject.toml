@@ -31,6 +31,7 @@ dependencies = [
     "fakeredis (>=2.34.0,<3.0.0)",
     "charset-normalizer (>=3.4.7,<4.0.0)",
     "mattermostdriver (>=7.3.0,<8.0.0)",
+    "websockets (>=16.0,<17.0)",
 ]
 
 
