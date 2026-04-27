@@ -184,6 +184,26 @@ def extract_question(text: str) -> str:
     return MENTION_PATTERN.sub("", text).strip()
 
 
+def is_help_only_question(question: str) -> bool:
+    """True when the user asked for usage help (no Cursor agent run)."""
+    s = question.strip()
+    if not s:
+        return False
+    if re.fullmatch(r"[?！？\s]+", s):
+        return True
+    core = s.lower().rstrip("!?.。…").strip()
+    return core in ("help", "help me")
+
+
+def format_kashiwaas_help_reply(*, example_line: str) -> str:
+    """Short usage text; ``example_line`` is a full example (often markdown-wrapped)."""
+    return (
+        "Ask a technical question on the same line as the mention. "
+        f"Example: {example_line}\n"
+        "Saying `help`, `help!`, or only `?` shows this message (no agent)."
+    )
+
+
 def extract_question_mattermost(
     text: str,
     bot_user_id: str,

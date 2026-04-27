@@ -285,6 +285,25 @@ class TestHandleMention:
         cursor_client.ask.assert_not_called()
 
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
+    def test_help_only_replies_without_cursor(self, _mock_dup):
+        from src.bot.kashiwaas import _handle_mention
+
+        mock_store = MagicMock()
+        ack = MagicMock()
+        event = {"text": "<@U12345> help!", "channel": "C123", "ts": "1234.5678"}
+        say = MagicMock()
+        client = MagicMock()
+        cursor_client = MagicMock()
+
+        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+
+        ack.assert_called_once()
+        say.assert_called_once()
+        assert "Example" in say.call_args[1]["text"]
+        cursor_client.ask.assert_not_called()
+        client.reactions_add.assert_not_called()
+
+    @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.threading.Thread")
     def test_new_question_adds_eyes_reaction(self, mock_thread_class, _mock_dup):
         from src.bot.kashiwaas import _handle_mention

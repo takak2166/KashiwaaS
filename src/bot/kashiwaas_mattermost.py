@@ -17,15 +17,17 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import websockets
-from websockets.asyncio.client import connect as ws_connect
 from mattermostdriver import Driver
 from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
+from websockets.asyncio.client import connect as ws_connect
 
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
     extract_question_mattermost,
+    format_kashiwaas_help_reply,
+    is_help_only_question,
     mattermost_posted_event_from_broadcast,
 )
 from src.bot.thread_store import ThreadStore
@@ -251,6 +253,14 @@ def handle_mattermost_mention(
         mm.create_post(
             ev.channel_id,
             f"Please enter a question. Example: `{hint} How do I use Python async?`",
+            root_id=ev.root_post_id,
+        )
+        return
+    if is_help_only_question(question):
+        hint = f"@{bot_username}" if (bot_username or "").strip() else f"@{bot_user_id}"
+        mm.create_post(
+            ev.channel_id,
+            format_kashiwaas_help_reply(example_line=f"`{hint} How do I use Python async?`"),
             root_id=ev.root_post_id,
         )
         return
