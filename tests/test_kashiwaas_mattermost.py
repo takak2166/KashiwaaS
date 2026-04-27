@@ -10,8 +10,6 @@ from src.bot import kashiwaas_mattermost as mm_bot
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
     extract_question_mattermost,
-    format_kashiwaas_help_reply,
-    is_help_only_question,
     mattermost_broadcast_mentions_bot,
     mattermost_post_mentions_bot,
     mattermost_posted_event_from_broadcast,
@@ -101,21 +99,6 @@ def test_extract_question_mattermost_username_same_as_id_no_double_strip() -> No
     uid = "same"
     q = extract_question_mattermost("@same hi", uid, bot_username="same")
     assert q == "hi"
-
-
-def test_is_help_only_question() -> None:
-    assert is_help_only_question("help") is True
-    assert is_help_only_question("HELP!") is True
-    assert is_help_only_question("help me") is True
-    assert is_help_only_question("?") is True
-    assert is_help_only_question("？") is True
-    assert is_help_only_question("how do I use help in python") is False
-
-
-def test_format_kashiwaas_help_reply_contains_example() -> None:
-    body = format_kashiwaas_help_reply(example_line="`@x hi`")
-    assert "`@x hi`" in body
-    assert "help" in body.lower()
 
 
 def test_mattermost_post_mentions_bot_by_at_id() -> None:
@@ -275,28 +258,3 @@ def test_handle_mattermost_mention_runs_cursor(mock_thread_class, _mock_dup) -> 
     mm.add_reaction.assert_called()
     cursor.ask.assert_called_once()
     store.set.assert_called()
-
-
-@patch("src.bot.kashiwaas_mattermost._is_duplicate_event", return_value=False)
-def test_handle_mattermost_mention_help_only_no_cursor(_mock_dup) -> None:
-    ev = MattermostPostedEvent(
-        channel_id="ch1",
-        root_post_id="root1",
-        event_post_id="evt1",
-        raw_text="@botuid help!",
-    )
-    mm = MagicMock()
-    cursor = MagicMock()
-    store = MagicMock()
-
-    mm_bot.handle_mattermost_mention(
-        ev=ev,
-        mm=mm,
-        cursor_client=cursor,
-        thread_store=store,
-        bot_user_id="botuid",
-    )
-
-    cursor.ask.assert_not_called()
-    mm.create_post.assert_called_once()
-    assert "Example" in mm.create_post.call_args[0][1]

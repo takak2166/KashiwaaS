@@ -16,8 +16,6 @@ from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
 from src.bot.kashiwaas_mention import (
     extract_question,
-    format_kashiwaas_help_reply,
-    is_help_only_question,
     slack_mention_event_from_dict,
 )
 from src.bot.thread_store import ThreadStore
@@ -199,14 +197,6 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread
     question = extract_question(text)
     if not question:
         say(text="Please enter a question. Example: `@kashiwaas How do I use Python async?`", thread_ts=thread_ts)
-        return
-    if is_help_only_question(question):
-        say(
-            text=format_kashiwaas_help_reply(
-                example_line="`@kashiwaas How do I use Python async?`",
-            ),
-            thread_ts=thread_ts,
-        )
         return
 
     _add_reaction(client, channel, event_ts, "eyes")
