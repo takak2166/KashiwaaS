@@ -3,12 +3,16 @@ FROM python:3.14-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (chromium: Plotly Kaleido / fig.write_image static export)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron curl make\
-    # Dependencies for kaleido
+    cron curl make \
+    chromium \
+    fonts-liberation \
     libx11-6 libxcb1 libxext6 libxrender1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Kaleido (choreographer) uses this before PATH / bundled Chrome lookup
+ENV BROWSER_PATH=/usr/bin/chromium
 
 # Install Poetry
 RUN pip install poetry==2.3.4
