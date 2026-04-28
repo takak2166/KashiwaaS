@@ -17,9 +17,9 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import websockets
-from websockets.asyncio.client import connect as ws_connect
 from mattermostdriver import Driver
 from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
+from websockets.asyncio.client import connect as ws_connect
 
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
