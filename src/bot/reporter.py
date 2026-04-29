@@ -161,7 +161,9 @@ def generate_weekly_report(
             )
             return
 
-    weekly_dashboard_id = cfg.kibana.weekly_dashboard_id or f"{channel_name}-weekly"
+    # Same rules as get_index_name() in src/es_client/index.py (non-alnum -> "-", lower).
+    _channel_slug = "".join(c if c.isalnum() else "-" for c in (channel_name or "").lower())
+    weekly_dashboard_id = cfg.kibana.weekly_dashboard_id or f"{_channel_slug}-weekly"
 
     # Get weekly stats
     try:

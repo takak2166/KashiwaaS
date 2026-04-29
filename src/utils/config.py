@@ -4,6 +4,7 @@ Configuration: parse environment into immutable AppConfig (no import-time global
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -168,6 +169,33 @@ def _get_float(env: Mapping[str, str], key: str, default: float) -> float:
         raise ConfigError(f"{key} must be a valid float (got {raw!r})") from e
 
 
+_RFC1918_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
+
+
+def _mattermost_http_host_allowed(hostname: str) -> bool:
+    """
+    Plain HTTP WebSocket sends the PAT in the clear; allow only loopback and RFC1918.
+
+    Hostnames are not resolved (DNS rebinding would bypass a naive resolve-then-check).
+    """
+    h = hostname.strip().lower()
+    if h == "localhost":
+        return True
+    try:
+        addr = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    if addr.is_loopback:
+        return True
+    if addr.version != 4:
+        return False
+    return any(addr in net for net in _RFC1918_NETWORKS)
+
+
 def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     """
     Build AppConfig from environment variables.
@@ -224,6 +252,11 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
         scheme = (parsed.scheme or "https").lower()
         if scheme not in ("http", "https"):
             raise ConfigError(f"MATTERMOST_URL scheme must be http or https (got {parsed.scheme!r})")
+        if scheme == "http" and not _mattermost_http_host_allowed(parsed.hostname):
+            raise ConfigError(
+                "MATTERMOST_URL with http is only allowed for localhost, loopback, or RFC1918 private "
+                f"addresses (got host {parsed.hostname!r}); use https for other hosts"
+            )
         port = parsed.port
         if port is None:
             port = 443 if scheme == "https" else 8065

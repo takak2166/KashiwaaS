@@ -159,15 +159,57 @@ def test_load_config_mattermost_invalid_url_raises(mm_url: str, match: str) -> N
 def test_load_config_mattermost_http_default_port() -> None:
     cfg = load_config(
         {
-            "MATTERMOST_URL": "http://mm.example.com",
+            "MATTERMOST_URL": "http://localhost",
             "MATTERMOST_PAT": "pat",
             "MATTERMOST_BOT_USER_ID": "uid1",
         }
     )
     assert cfg.mattermost is not None
     assert cfg.mattermost.driver_scheme == "http"
-    assert cfg.mattermost.driver_host == "mm.example.com"
+    assert cfg.mattermost.driver_host == "localhost"
     assert cfg.mattermost.driver_port == 8065
+
+
+@pytest.mark.parametrize(
+    "mm_url",
+    [
+        "http://127.0.0.1",
+        "http://10.0.0.1:8065",
+        "http://172.16.0.1",
+        "http://192.168.1.1",
+        "http://[::1]:8065",
+    ],
+)
+def test_load_config_mattermost_http_private_or_loopback_allowed(mm_url: str) -> None:
+    cfg = load_config(
+        {
+            "MATTERMOST_URL": mm_url,
+            "MATTERMOST_PAT": "pat",
+            "MATTERMOST_BOT_USER_ID": "uid1",
+        }
+    )
+    assert cfg.mattermost is not None
+    assert cfg.mattermost.driver_scheme == "http"
+
+
+@pytest.mark.parametrize(
+    "mm_url",
+    [
+        "http://mm.example.com",
+        "http://8.8.8.8",
+        "http://169.254.1.1",
+        "http://172.32.0.1",
+    ],
+)
+def test_load_config_mattermost_http_public_or_non_rfc1918_raises(mm_url: str) -> None:
+    with pytest.raises(ConfigError, match="MATTERMOST_URL with http is only allowed"):
+        load_config(
+            {
+                "MATTERMOST_URL": mm_url,
+                "MATTERMOST_PAT": "pat",
+                "MATTERMOST_BOT_USER_ID": "uid1",
+            }
+        )
 
 
 def test_load_config_mattermost_https_default_port() -> None:
