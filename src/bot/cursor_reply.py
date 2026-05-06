@@ -1,8 +1,8 @@
 """
 Shared Cursor agent reply flow for chat bots (Slack, Mattermost).
 
-Encapsulates ThreadStore mapping, duplicate assistant detection, and polling hooks.
-Platform-specific I/O is injected via callbacks.
+Encapsulates conversation persistence, duplicate assistant detection, and polling hooks.
+Platform-specific I/O is injected via callbacks (emoji reactions + posts).
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from collections.abc import Callable
 from redis.exceptions import RedisError
 from valkey.exceptions import ValkeyError
 
+from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.kashiwaas_mention import is_duplicate_assistant_reply
-from src.bot.thread_store import ThreadStore
 from src.cursor.client import AgentStatus, CursorAPIError, CursorClient, CursorTimeoutError
 from src.utils.logger import get_logger
 
@@ -26,20 +26,20 @@ def fingerprint_text(text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def thread_store_safe(fn: Callable[[], object], /, *, default: object | None = None) -> object:
-    """Run a ThreadStore op; log and swallow Valkey/redis errors."""
+def repo_safe(fn: Callable[[], object], /, *, default: object | None = None) -> object:
+    """Run a repository op; log and swallow Valkey/redis errors."""
     try:
         return fn()
     except (ValkeyError, RedisError) as e:
-        logger.warning("ThreadStore operation failed (ignored): {}", e)
+        logger.warning("ThreadConversationRepository operation failed (ignored): {}", e)
         return default
 
 
 def run_cursor_reply(
     *,
-    thread_store_key: str,
+    thread_key: str,
     question: str,
-    thread_store: ThreadStore,
+    repo: ThreadConversationRepository,
     cursor_client: CursorClient,
     on_poll: Callable[[float], None] | None,
     post_assistant_text: Callable[[str], None],
@@ -53,10 +53,11 @@ def run_cursor_reply(
     Callers should add an initial \"processing\" reaction before invoking this.
     """
     try:
-        agent_id = thread_store.get(thread_store_key)
-        expected_previous_message_id = thread_store.get_last_message_id(thread_store_key)
+        convo = repo.get(thread_key)
+        agent_id = convo.agent_id
+        expected_previous_message_id = convo.last_message_id
         if agent_id:
-            logger.info("Followup in thread {} -> agent {}", thread_store_key, agent_id)
+            logger.info("Followup in thread {} -> agent {}", thread_key, agent_id)
             result = cursor_client.followup(
                 agent_id,
                 question,
@@ -64,17 +65,18 @@ def run_cursor_reply(
                 on_poll=on_poll,
             )
         else:
-            logger.info("New question in thread {}: {}...", thread_store_key, question[:80])
+            logger.info("New question in thread {}: {}...", thread_key, question[:80])
             result = cursor_client.ask(
                 question,
                 expected_previous_message_id=expected_previous_message_id,
                 on_poll=on_poll,
             )
             if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                thread_store.set(thread_store_key, result.agent_id)
+                convo = convo.with_agent(result.agent_id)
+                repo.save(convo)
 
         if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-            thread_store.remove(thread_store_key)
+            repo.delete(thread_key)
             react_remove("eyes")
             react_add("x")
             post_plain("Sorry, an error occurred while generating the response. Please try again later.")
@@ -82,14 +84,14 @@ def run_cursor_reply(
 
         latest_msg = cursor_client.get_latest_assistant_message_obj(result.messages)
         if not latest_msg:
-            thread_store.remove(thread_store_key)
+            repo.delete(thread_key)
             react_remove("eyes")
             react_add("x")
             post_plain("Failed to retrieve a response. Please try again.")
             return
 
-        last_sent_message_id = thread_store.get_last_message_id(thread_store_key)
-        last_sent_fingerprint = thread_store.get_last_message_fingerprint(thread_store_key)
+        last_sent_message_id = convo.last_message_id
+        last_sent_fingerprint = convo.last_fingerprint
         current_fingerprint = fingerprint_text(latest_msg.text)
 
         def _dup() -> bool:
@@ -108,7 +110,7 @@ def run_cursor_reply(
                     "(attempt={}/{}, thread={}, msg_id={})",
                     attempt + 1,
                     max_retries,
-                    thread_store_key,
+                    thread_key,
                     latest_msg.id,
                 )
                 refreshed = cursor_client.get_conversation_after_complete(
@@ -129,9 +131,9 @@ def run_cursor_reply(
                 post_plain("The same response content keeps repeating. Please wait a moment and try again.")
                 return
 
-        logger.info("Sending assistant message: thread={}, msg_id={}", thread_store_key, latest_msg.id)
-        thread_store.set_last_message_id(thread_store_key, latest_msg.id)
-        thread_store.set_last_message_fingerprint(thread_store_key, current_fingerprint)
+        logger.info("Sending assistant message: thread={}, msg_id={}", thread_key, latest_msg.id)
+        convo = convo.with_agent(result.agent_id).with_last_reply(latest_msg.id, current_fingerprint)
+        repo.save(convo)
 
         post_assistant_text(latest_msg.text)
 
@@ -139,7 +141,7 @@ def run_cursor_reply(
         react_add("white_check_mark")
 
     except CursorTimeoutError:
-        thread_store_safe(lambda: thread_store.remove(thread_store_key))
+        repo_safe(lambda: repo.delete(thread_key))
         react_remove("eyes")
         react_add("x")
         post_plain(
@@ -153,11 +155,11 @@ def run_cursor_reply(
         if e.status_code in (401, 403):
             post_plain("There is an issue with Cursor API authentication settings. Please contact an administrator.")
         else:
-            thread_store_safe(lambda: thread_store.remove(thread_store_key))
+            repo_safe(lambda: repo.delete(thread_key))
             post_plain("Sorry, failed to retrieve a response. Please try again later.")
     except Exception as e:
         logger.error("Unexpected error handling mention: {}", e)
-        thread_store_safe(lambda: thread_store.remove(thread_store_key))
+        repo_safe(lambda: repo.delete(thread_key))
         react_remove("eyes")
         react_add("x")
         post_plain("An unexpected error occurred. Please try again later.")

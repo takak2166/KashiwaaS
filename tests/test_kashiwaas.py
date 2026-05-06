@@ -10,29 +10,31 @@ import fakeredis
 from redis.exceptions import ResponseError
 from valkey.exceptions import ValkeyError
 
-from src.bot.cursor_reply import thread_store_safe as _thread_store_safe
+from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
+from src.bot.cursor_reply import repo_safe as _repo_safe
+from src.bot.domain.conversation import ThreadConversation
 from src.bot.kashiwaas import (
     POLL_PROGRESS_POST_INTERVAL_SECONDS,
     SLACK_MARKDOWN_BLOCK_TEXT_MAX,
+    THREAD_LOCK_TTL_SECONDS,
     _extract_question,
     _fallback_notification_text,
     _say_markdown_chunks,
     _split_message,
 )
-from src.bot.thread_store import ThreadStore
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorTimeoutError
 from src.utils.config import ValkeyConfig
 
 
-def _thread_store_for_test(*, thread_ttl_seconds: int = 86400) -> ThreadStore:
+def _conversation_repo_for_test(*, thread_ttl_seconds: int = 86400) -> ValkeyThreadConversationRepository:
     cfg = ValkeyConfig(url="redis://ignored", thread_ttl_seconds=thread_ttl_seconds)
-    return ThreadStore(cfg, client=fakeredis.FakeRedis(decode_responses=True))
+    return ValkeyThreadConversationRepository(cfg, client=fakeredis.FakeRedis(decode_responses=True))
 
 
-def _thread_store_key_count(store: ThreadStore) -> int:
-    """Count thread keys (tests only; avoids O(N) scan_iter on ThreadStore in production code)."""
-    pattern = f"{ThreadStore._KEY_PREFIX}{store._key_prefix_suffix}*"  # noqa: SLF001
-    return sum(1 for _ in store._client.scan_iter(match=pattern, count=100))
+def _repo_key_count(repo: ValkeyThreadConversationRepository) -> int:
+    """Count thread keys (tests only)."""
+    pattern = f"{repo.KEY_PREFIX}{repo._key_prefix_suffix}*"  # noqa: SLF001
+    return sum(1 for _ in repo._client.scan_iter(match=pattern, count=100))
 
 
 class TestExtractQuestion:
@@ -174,93 +176,21 @@ class TestPollProgressNotifier:
         assert len(calls) == 2
 
 
-class TestThreadStore:
-    """Tests for ThreadStore class"""
-
-    def test_set_and_get(self):
-        store = _thread_store_for_test()
-        store.set("thread_1", "agent_1")
-        assert store.get("thread_1") == "agent_1"
-
-    def test_get_missing(self):
-        store = _thread_store_for_test()
-        assert store.get("nonexistent") is None
-
-    def test_remove(self):
-        store = _thread_store_for_test()
-        store.set("thread_1", "agent_1")
-        store.remove("thread_1")
-        assert store.get("thread_1") is None
-
-    def test_remove_missing(self):
-        store = _thread_store_for_test()
-        store.remove("nonexistent")
-
-    def test_overwrite(self):
-        store = _thread_store_for_test()
-        store.set("thread_1", "agent_1")
-        store.set("thread_1", "agent_2")
-        assert store.get("thread_1") == "agent_2"
-
-    def test_set_sets_ttl_immediately(self):
-        store = _thread_store_for_test(thread_ttl_seconds=10)
-        store.set("thread_1", "agent_1")
-
-        # Regression test: TTL must be set by set() itself (not relying on a separate expire call).
-        key = store._key("thread_1")  # noqa: SLF001 - test internal key builder
-        ttl = store._client.ttl(key)  # noqa: SLF001 - test internal client
-        assert ttl is not None
-        assert ttl > 0
-
-    def test_last_message_id(self):
-        store = _thread_store_for_test()
-        store.set("thread_1", "agent_1")
-        assert store.get_last_message_id("thread_1") is None
-        store.set_last_message_id("thread_1", "msg_123")
-        assert store.get_last_message_id("thread_1") == "msg_123"
-        assert store.get_last_message_fingerprint("thread_1") is None
-        store.set_last_message_fingerprint("thread_1", "fp_123")
-        assert store.get_last_message_fingerprint("thread_1") == "fp_123"
-        store.remove("thread_1")
-        assert store.get("thread_1") is None
-        assert store.get_last_message_id("thread_1") is None
-        assert store.get_last_message_fingerprint("thread_1") is None
-
-    def test_ttl_expiration(self):
-        store = _thread_store_for_test(thread_ttl_seconds=1)
-        store.set("thread_1", "agent_1")
-        time.sleep(2.0)
-        assert store.get("thread_1") is None
-
-    def test_len(self):
-        store = _thread_store_for_test()
-        assert _thread_store_key_count(store) == 0
-        store.set("thread_1", "agent_1")
-        store.set("thread_2", "agent_2")
-        assert _thread_store_key_count(store) == 2
-
-    def test_len_after_expiration(self):
-        store = _thread_store_for_test(thread_ttl_seconds=1)
-        store.set("thread_1", "agent_1")
-        time.sleep(2.0)
-        assert _thread_store_key_count(store) == 0
-
-
-class TestThreadStoreSafe:
+class TestRepoSafe:
     def test_returns_fn_result(self):
-        assert _thread_store_safe(lambda: "ok") == "ok"
+        assert _repo_safe(lambda: "ok") == "ok"
 
     def test_swallows_valkey_error(self):
         def boom():
             raise ValkeyError("boom")
 
-        assert _thread_store_safe(boom, default=42) == 42
+        assert _repo_safe(boom, default=42) == 42
 
     def test_swallows_redis_error(self):
         def boom():
             raise ResponseError("boom")
 
-        assert _thread_store_safe(boom) is None
+        assert _repo_safe(boom) is None
 
 
 class TestHandleMention:
@@ -270,14 +200,14 @@ class TestHandleMention:
     def test_empty_question_replies_with_help(self, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
         ack = MagicMock()
         event = {"text": "<@U12345>", "channel": "C123", "ts": "1234.5678"}
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         ack.assert_called_once()
         say.assert_called_once()
@@ -289,7 +219,7 @@ class TestHandleMention:
     def test_new_question_adds_eyes_reaction(self, mock_thread_class, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         # Run _process synchronously so the test is deterministic (CI runs fast and thread may finish before assert)
         def run_target_immediately(*args, **kwargs):
@@ -305,7 +235,7 @@ class TestHandleMention:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = None
+        mock_repo.get.return_value = ThreadConversation.empty("1234.5678")
         event = {
             "text": "<@U12345> What is Python?",
             "channel": "C123",
@@ -321,7 +251,7 @@ class TestHandleMention:
             messages=[AgentMessage(id="m1", type="assistant_message", text="Python is a language.")],
         )
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         ack.assert_called_once()
         client.reactions_add.assert_any_call(channel="C123", timestamp="1234.5678", name="eyes")
@@ -332,7 +262,7 @@ class TestHandleMention:
         """While polling, on_poll posts periodic progress text to the thread."""
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -347,7 +277,7 @@ class TestHandleMention:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = None
+        mock_repo.get.return_value = ThreadConversation.empty("1234.5678")
         event = {
             "text": "<@U12345> What is Python?",
             "channel": "C123",
@@ -369,7 +299,7 @@ class TestHandleMention:
 
         cursor_client.ask.side_effect = ask_impl
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         assert cursor_client.ask.call_count == 1
         assert cursor_client.ask.call_args[1].get("on_poll") is not None
@@ -381,7 +311,7 @@ class TestHandleMention:
     def test_cursor_timeout_says_poll_timeout_hint(self, mock_thread_class, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -396,7 +326,7 @@ class TestHandleMention:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = None
+        mock_repo.get.return_value = ThreadConversation.empty("1234.5678")
         event = {
             "text": "<@U12345> What is Python?",
             "channel": "C123",
@@ -408,7 +338,7 @@ class TestHandleMention:
         cursor_client = MagicMock()
         cursor_client.ask.side_effect = CursorTimeoutError("timeout")
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         texts = [c[1].get("text", "") for c in say.call_args_list if len(c) > 1]
         assert any("poll timeout" in t.lower() for t in texts)
@@ -419,7 +349,7 @@ class TestHandleMention:
         """When event has thread_ts, it should be used as the reply target"""
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -434,7 +364,7 @@ class TestHandleMention:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = None
+        mock_repo.get.return_value = ThreadConversation.empty("1234.5678")
         event = {
             "text": "<@U12345> followup question",
             "channel": "C123",
@@ -451,7 +381,7 @@ class TestHandleMention:
             messages=[AgentMessage(id="m1", type="assistant_message", text="Here is the answer.")],
         )
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         ack.assert_called_once()
         client.reactions_add.assert_any_call(channel="C123", timestamp="1234.9999", name="eyes")
@@ -462,7 +392,7 @@ class TestHandleMention:
         """When followup returns ERROR, the stale agent mapping should be cleared."""
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -478,7 +408,7 @@ class TestHandleMention:
         mock_thread_class.side_effect = run_target_immediately
 
         # Existing mapping for this thread
-        mock_store.get.return_value = "agent_1"
+        mock_repo.get.return_value = ThreadConversation("thread_1", "agent_1", None, None)
         event = {
             "text": "<@U12345> followup question",
             "channel": "C123",
@@ -495,11 +425,11 @@ class TestHandleMention:
             messages=[],
         )
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         ack.assert_called_once()
         # Mapping should be cleared so that future mentions can create a new agent
-        mock_store.remove.assert_called_with("thread_1")
+        mock_repo.delete.assert_called_with("thread_1")
 
 
 class TestThreadLocks:
@@ -508,14 +438,10 @@ class TestThreadLocks:
 
         old_ttl = botmod.THREAD_LOCK_TTL_SECONDS
         try:
-            # Make TTL short for test
             botmod.THREAD_LOCK_TTL_SECONDS = 0
             lock = botmod._get_thread_lock("thread_x")
             assert lock is not None
-
-            # Trigger eviction on next access
             botmod._get_thread_lock("thread_y")
-
             with botmod._thread_locks_lock:
                 assert "thread_x" not in botmod._thread_locks
         finally:
@@ -549,8 +475,8 @@ class TestThreadLocks:
         """Requests in the same thread_ts are processed sequentially (no concurrent followup)."""
         from src.bot.kashiwaas import _handle_mention
 
-        thread_store = _thread_store_for_test()
-        thread_store.set("thread_1", "agent_1")
+        conversation_repo = _conversation_repo_for_test()
+        conversation_repo.save(ThreadConversation("thread_1", "agent_1", None, None))
 
         started = threading.Event()
         unblock = threading.Event()
@@ -583,8 +509,8 @@ class TestThreadLocks:
         event1 = {"text": "<@U12345> one", "channel": "C123", "ts": "1.0", "thread_ts": "thread_1"}
         event2 = {"text": "<@U12345> two", "channel": "C123", "ts": "2.0", "thread_ts": "thread_1"}
 
-        _handle_mention(ack1, event1, say, client, cursor_client, thread_store)
-        _handle_mention(ack2, event2, say, client, cursor_client, thread_store)
+        _handle_mention(ack1, event1, say, client, cursor_client, conversation_repo)
+        _handle_mention(ack2, event2, say, client, cursor_client, conversation_repo)
 
         assert started.wait(timeout=2)
         # Allow first to finish; second can then proceed
@@ -599,7 +525,7 @@ class TestThreadLocks:
         """When no assistant message is returned, clear mapping so thread can recover."""
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -614,9 +540,7 @@ class TestThreadLocks:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = "agent_1"
-        mock_store.get_last_message_id.return_value = "m_prev"
-        mock_store.get_last_message_fingerprint.return_value = None
+        mock_repo.get.return_value = ThreadConversation("thread_1", "agent_1", "m_prev", None)
 
         event = {
             "text": "<@U12345> followup question",
@@ -635,16 +559,16 @@ class TestThreadLocks:
         )
         cursor_client.get_latest_assistant_message_obj.return_value = None
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
-        mock_store.remove.assert_called_with("thread_1")
+        mock_repo.delete.assert_called_with("thread_1")
 
     @patch("src.bot.kashiwaas._is_duplicate_event", return_value=False)
     @patch("src.bot.kashiwaas.threading.Thread")
     def test_duplicate_assistant_message_not_sent_twice(self, mock_thread_class, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -659,9 +583,7 @@ class TestThreadLocks:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = "agent_1"
-        mock_store.get_last_message_id.return_value = "m_dup"
-        mock_store.get_last_message_fingerprint.return_value = None
+        mock_repo.get.return_value = ThreadConversation("thread_1", "agent_1", "m_dup", None)
 
         event = {
             "text": "<@U12345> followup question",
@@ -688,7 +610,7 @@ class TestThreadLocks:
             AgentMessage(id="m_new", type="assistant_message", text="new answer"),
         ]
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         say.assert_called()
         cursor_client.get_conversation_after_complete.assert_called()
@@ -698,7 +620,7 @@ class TestThreadLocks:
     def test_duplicate_assistant_message_retry_still_duplicate_returns_error(self, mock_thread_class, _mock_dup):
         from src.bot.kashiwaas import _handle_mention
 
-        mock_store = MagicMock()
+        mock_repo = MagicMock()
 
         def run_target_immediately(*args, **kwargs):
             target = kwargs.get("target")
@@ -713,9 +635,7 @@ class TestThreadLocks:
 
         mock_thread_class.side_effect = run_target_immediately
 
-        mock_store.get.return_value = "agent_1"
-        mock_store.get_last_message_id.return_value = "m_dup"
-        mock_store.get_last_message_fingerprint.return_value = None
+        mock_repo.get.return_value = ThreadConversation("thread_1", "agent_1", "m_dup", None)
 
         event = {
             "text": "<@U12345> followup question",
@@ -742,7 +662,7 @@ class TestThreadLocks:
             AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
         ]
 
-        _handle_mention(ack, event, say, client, cursor_client, mock_store)
+        _handle_mention(ack, event, say, client, cursor_client, mock_repo)
 
         say.assert_called_once()
         assert "same response content" in say.call_args[1]["text"]

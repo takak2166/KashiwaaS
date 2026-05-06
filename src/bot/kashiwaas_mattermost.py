@@ -28,7 +28,8 @@ from src.bot.kashiwaas_mention import (
     extract_question_mattermost,
     mattermost_posted_event_from_broadcast,
 )
-from src.bot.thread_store import ThreadStore
+from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
+from src.bot.domain.repository import ThreadConversationRepository
 from src.cursor.client import CursorClient
 from src.mattermost.client import MattermostBotClient
 from src.slack import markdown_blocks as _slack_md
@@ -224,7 +225,7 @@ def handle_mattermost_mention(
     ev: MattermostPostedEvent,
     mm: MattermostBotClient,
     cursor_client: CursorClient,
-    thread_store: ThreadStore,
+    conversation_repo: ThreadConversationRepository,
     bot_user_id: str,
     bot_username: str = "",
 ) -> None:
@@ -297,9 +298,9 @@ def handle_mattermost_mention(
                     next_at += POLL_PROGRESS_POST_INTERVAL_SECONDS
 
             run_cursor_reply(
-                thread_store_key=thread_key,
+                thread_key=thread_key,
                 question=question,
-                thread_store=thread_store,
+                repo=conversation_repo,
                 cursor_client=cursor_client,
                 on_poll=on_poll,
                 post_assistant_text=post_assistant,
@@ -330,7 +331,7 @@ def build_websocket_handler(
     mm_cfg: MattermostConfig,
     mm_client: MattermostBotClient,
     cursor_client: CursorClient,
-    thread_store: ThreadStore,
+    conversation_repo: ThreadConversationRepository,
     bot_username: str,
 ):
     """Return async handler for mattermostdriver websocket."""
@@ -359,7 +360,7 @@ def build_websocket_handler(
             ev=ev,
             mm=mm_client,
             cursor_client=cursor_client,
-            thread_store=thread_store,
+            conversation_repo=conversation_repo,
             bot_user_id=mm_cfg.bot_user_id,
             bot_username=bot_username,
         )
@@ -375,7 +376,7 @@ def _mattermost_bot_username(driver: Driver) -> str:
 
 def create_mattermost_stack(
     cfg: AppConfig,
-) -> tuple[MattermostConfig, Driver, CursorClient, ThreadStore, MattermostBotClient, str]:
+) -> tuple[MattermostConfig, Driver, CursorClient, ValkeyThreadConversationRepository, MattermostBotClient, str]:
     mm_cfg = _require_mattermost_bot_config(cfg)
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
@@ -395,8 +396,8 @@ def create_mattermost_stack(
         conversation_text_stabilize_required_matches=cfg.cursor.conversation_text_stabilize_required_matches,
         conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
-    thread_store = ThreadStore(cfg.valkey, key_prefix="mm:")
-    return mm_cfg, driver, cursor_client, thread_store, mm_client, bot_username
+    conversation_repo = ValkeyThreadConversationRepository(cfg.valkey, key_prefix="mm:")
+    return mm_cfg, driver, cursor_client, conversation_repo, mm_client, bot_username
 
 
 def main() -> None:
@@ -404,7 +405,7 @@ def main() -> None:
     cfg = load_config()
     init_alerter(cfg)
     try:
-        mm_cfg, driver, cursor_client, thread_store, mm_client, bot_username = create_mattermost_stack(cfg)
+        mm_cfg, driver, cursor_client, conversation_repo, mm_client, bot_username = create_mattermost_stack(cfg)
     except ConfigError as e:
         logger.error("{}", e)
         sys.exit(1)
@@ -413,7 +414,7 @@ def main() -> None:
         mm_cfg=mm_cfg,
         mm_client=mm_client,
         cursor_client=cursor_client,
-        thread_store=thread_store,
+        conversation_repo=conversation_repo,
         bot_username=bot_username,
     )
     logger.info("KashiwaaS Mattermost bot starting (WebSocket)...")

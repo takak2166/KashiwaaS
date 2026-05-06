@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.bot import kashiwaas_mattermost as mm_bot
+from src.bot.domain.conversation import ThreadConversation
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
     extract_question_mattermost,
@@ -108,11 +109,14 @@ def test_mattermost_post_mentions_bot_by_at_id() -> None:
 
 def test_mattermost_post_mentions_bot_by_at_configured_username() -> None:
     uid = "longid"
-    assert mattermost_post_mentions_bot(
-        {"message": "@kashiwaas ping"},
-        uid,
-        bot_username="kashiwaas",
-    ) is True
+    assert (
+        mattermost_post_mentions_bot(
+            {"message": "@kashiwaas ping"},
+            uid,
+            bot_username="kashiwaas",
+        )
+        is True
+    )
 
 
 def test_mattermost_post_mentions_bot_via_props() -> None:
@@ -245,16 +249,16 @@ def test_handle_mattermost_mention_runs_cursor(mock_thread_class, _mock_dup) -> 
     )
     cursor.get_latest_assistant_message_obj.side_effect = lambda msgs: msgs[-1] if msgs else None
     store = MagicMock()
-    store.get.return_value = None
+    store.get.return_value = ThreadConversation.empty("ch1:root1")
 
     mm_bot.handle_mattermost_mention(
         ev=ev,
         mm=mm,
         cursor_client=cursor,
-        thread_store=store,
+        conversation_repo=store,
         bot_user_id="botuid",
     )
 
     mm.add_reaction.assert_called()
     cursor.ask.assert_called_once()
-    store.set.assert_called()
+    store.save.assert_called()

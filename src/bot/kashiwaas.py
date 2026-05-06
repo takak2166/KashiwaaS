@@ -12,13 +12,14 @@ from dataclasses import dataclass, field
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
+from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.kashiwaas_mention import (
     extract_question,
     slack_mention_event_from_dict,
 )
-from src.bot.thread_store import ThreadStore
 from src.cursor.client import CursorClient
 from src.slack import markdown_blocks as _slack_md
 from src.utils.config import AppConfig, ConfigError, apply_dotenv, load_config
@@ -115,11 +116,11 @@ def create_app(cfg: AppConfig) -> App:
         conversation_text_stabilize_required_matches=cfg.cursor.conversation_text_stabilize_required_matches,
         conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
-    thread_store = ThreadStore(cfg.valkey)
+    conversation_repo: ThreadConversationRepository = ValkeyThreadConversationRepository(cfg.valkey)
 
     @app.event("app_mention")
     def handle_mention(ack, event, say, client):
-        _handle_mention(ack, event, say, client, cursor_client, thread_store)
+        _handle_mention(ack, event, say, client, cursor_client, conversation_repo)
 
     # Debug / troubleshooting: full Bolt ``body`` (may contain message text); enable DEBUG on this logger to see it.
     @app.event("message")
@@ -176,7 +177,9 @@ def _is_duplicate_event(channel: str, event_ts: str) -> bool:
         return False
 
 
-def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread_store: ThreadStore):
+def _handle_mention(
+    ack, event, say, client, cursor_client: CursorClient, conversation_repo: ThreadConversationRepository
+):
     """Process an app_mention event."""
     ack()
 
@@ -216,9 +219,9 @@ def _handle_mention(ack, event, say, client, cursor_client: CursorClient, thread
                 _remove_reaction(client, channel, event_ts, name)
 
             run_cursor_reply(
-                thread_store_key=thread_ts,
+                thread_key=thread_ts,
                 question=question,
-                thread_store=thread_store,
+                repo=conversation_repo,
                 cursor_client=cursor_client,
                 on_poll=_make_poll_progress_notifier(say, thread_ts),
                 post_assistant_text=post_assistant,
