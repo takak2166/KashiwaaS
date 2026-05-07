@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+from src.bot.adapters.slack.chat_adapter import SlackChatAdapter
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
@@ -137,13 +138,6 @@ def _add_reaction(client, channel: str, timestamp: str, name: str) -> None:
         logger.error(f"Failed to add reaction '{name}' (channel={channel}, ts={timestamp}): {e}")
 
 
-def _remove_reaction(client, channel: str, timestamp: str, name: str) -> None:
-    try:
-        client.reactions_remove(channel=channel, timestamp=timestamp, name=name)
-    except Exception as e:
-        logger.warning(f"Failed to remove reaction '{name}': {e}")
-
-
 def _make_poll_progress_notifier(say, thread_ts: str):
     """Return on_poll(elapsed) that posts to the thread at fixed intervals."""
     next_at = float(POLL_PROGRESS_POST_INTERVAL_SECONDS)
@@ -205,29 +199,20 @@ def _handle_mention(
 
     def _process():
         with _thread_ts_lock(thread_ts):
-
-            def post_plain(t: str) -> None:
-                say(text=t, thread_ts=thread_ts)
-
-            def post_assistant(t: str) -> None:
-                _slack_md.say_markdown_text(say, t, thread_ts)
-
-            def react_add(name: str) -> None:
-                _add_reaction(client, channel, event_ts, name)
-
-            def react_remove(name: str) -> None:
-                _remove_reaction(client, channel, event_ts, name)
-
+            adapter = SlackChatAdapter(
+                client=client,
+                channel=channel,
+                event_ts=event_ts,
+                say=say,
+                thread_ts=thread_ts,
+            )
             run_cursor_reply(
                 thread_key=thread_ts,
                 question=question,
                 repo=conversation_repo,
                 cursor_client=cursor_client,
+                adapter=adapter,
                 on_poll=_make_poll_progress_notifier(say, thread_ts),
-                post_assistant_text=post_assistant,
-                post_plain=post_plain,
-                react_add=react_add,
-                react_remove=react_remove,
             )
 
     threading.Thread(target=_process, daemon=True).start()

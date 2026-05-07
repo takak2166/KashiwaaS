@@ -16,7 +16,6 @@ from src.bot.domain.conversation import ThreadConversation
 from src.bot.kashiwaas import (
     POLL_PROGRESS_POST_INTERVAL_SECONDS,
     SLACK_MARKDOWN_BLOCK_TEXT_MAX,
-    THREAD_LOCK_TTL_SECONDS,
     _extract_question,
     _fallback_notification_text,
     _say_markdown_chunks,

@@ -21,18 +21,18 @@ from mattermostdriver import Driver
 from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
 from websockets.asyncio.client import connect as ws_connect
 
+from src.bot.adapters.mattermost.chat_adapter import MattermostChatAdapter
+from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.alerter import init_alerter
 from src.bot.cursor_reply import run_cursor_reply
+from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
     extract_question_mattermost,
     mattermost_posted_event_from_broadcast,
 )
-from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
-from src.bot.domain.repository import ThreadConversationRepository
 from src.cursor.client import CursorClient
 from src.mattermost.client import MattermostBotClient
-from src.slack import markdown_blocks as _slack_md
 from src.utils.config import AppConfig, ConfigError, MattermostConfig, apply_dotenv, load_config
 from src.utils.logger import get_logger
 
@@ -41,7 +41,6 @@ logger = get_logger(__name__)
 POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
 PROCESSED_EVENT_TTL_SECONDS = 300
 THREAD_LOCK_TTL_SECONDS = 86400
-MM_MESSAGE_MAX_LEN = 16000
 
 _processed_events: dict[tuple[str, str], float] = {}
 _processed_events_lock = threading.Lock()
@@ -179,18 +178,6 @@ def _mattermost_driver_options(mm: MattermostConfig) -> dict[str, Any]:
     }
 
 
-def _mm_escape_message(text: str) -> str:
-    """Strip NULs only. Do not rewrite ``|``; global escaping broke tables and non-table pipes."""
-    return text.replace("\x00", "")
-
-
-def _post_mm_chunks(mm: MattermostBotClient, channel_id: str, root_id: str, text: str) -> None:
-    body = _mm_escape_message(text)
-    chunks = _slack_md.split_slack_message_text(body, MM_MESSAGE_MAX_LEN)
-    for chunk in chunks:
-        mm.create_post(channel_id, chunk, root_id=root_id)
-
-
 def _require_mattermost_bot_config(cfg: AppConfig) -> MattermostConfig:
     if cfg.mattermost is None:
         raise ConfigError(
@@ -218,6 +205,25 @@ def _resolve_mattermost_bot_user_id(mm_cfg: MattermostConfig, driver: Driver) ->
     if not env_id:
         logger.info("Mattermost bot user id from PAT (users/me): {}", api_id)
     return replace(mm_cfg, bot_user_id=api_id)
+
+
+def _make_poll_progress_notifier(mm: MattermostBotClient, channel_id: str, root_post_id: str):
+    next_at = float(POLL_PROGRESS_POST_INTERVAL_SECONDS)
+
+    def _on_poll(elapsed: float) -> None:
+        nonlocal next_at
+        while elapsed >= next_at:
+            try:
+                mm.create_post(
+                    channel_id,
+                    "Still generating a response... (This may take several minutes for complex tasks.)",
+                    root_id=root_post_id,
+                )
+            except Exception as ex:
+                logger.warning("Failed to post poll progress (root={}): {}", root_post_id, ex)
+            next_at += POLL_PROGRESS_POST_INTERVAL_SECONDS
+
+    return _on_poll
 
 
 def handle_mattermost_mention(
@@ -263,50 +269,20 @@ def handle_mattermost_mention(
 
     def _process() -> None:
         with _thread_key_lock(thread_key):
-
-            def post_plain(t: str) -> None:
-                mm.create_post(ev.channel_id, t, root_id=ev.root_post_id)
-
-            def post_assistant(t: str) -> None:
-                _post_mm_chunks(mm, ev.channel_id, ev.root_post_id, t)
-
-            def react_add(name: str) -> None:
-                try:
-                    mm.add_reaction(bot_user_id, ev.event_post_id, name)
-                except Exception as ex:
-                    logger.error("Failed to add reaction {}: {}", name, ex)
-
-            def react_remove(name: str) -> None:
-                try:
-                    mm.remove_reaction(bot_user_id, ev.event_post_id, name)
-                except Exception as ex:
-                    logger.warning("Failed to remove reaction {}: {}", name, ex)
-
-            next_at = float(POLL_PROGRESS_POST_INTERVAL_SECONDS)
-
-            def on_poll(elapsed: float) -> None:
-                nonlocal next_at
-                while elapsed >= next_at:
-                    try:
-                        mm.create_post(
-                            ev.channel_id,
-                            "Still generating a response... (This may take several minutes for complex tasks.)",
-                            root_id=ev.root_post_id,
-                        )
-                    except Exception as ex:
-                        logger.warning("Failed to post poll progress (root={}): {}", ev.root_post_id, ex)
-                    next_at += POLL_PROGRESS_POST_INTERVAL_SECONDS
-
+            adapter = MattermostChatAdapter(
+                mm=mm,
+                bot_user_id=bot_user_id,
+                event_post_id=ev.event_post_id,
+                channel_id=ev.channel_id,
+                root_post_id=ev.root_post_id,
+            )
             run_cursor_reply(
                 thread_key=thread_key,
                 question=question,
                 repo=conversation_repo,
                 cursor_client=cursor_client,
-                on_poll=on_poll,
-                post_assistant_text=post_assistant,
-                post_plain=post_plain,
-                react_add=react_add,
-                react_remove=react_remove,
+                adapter=adapter,
+                on_poll=_make_poll_progress_notifier(mm, ev.channel_id, ev.root_post_id),
             )
 
     threading.Thread(target=_process, daemon=True).start()

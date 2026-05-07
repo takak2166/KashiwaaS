@@ -2,7 +2,7 @@
 Shared Cursor agent reply flow for chat bots (Slack, Mattermost).
 
 Encapsulates conversation persistence, duplicate assistant detection, and polling hooks.
-Platform-specific I/O is injected via callbacks (emoji reactions + posts).
+Platform-specific I/O is injected via :class:`~src.bot.application.chat_adapter.ChatAdapter`.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from collections.abc import Callable
 from redis.exceptions import RedisError
 from valkey.exceptions import ValkeyError
 
+from src.bot.application.chat_adapter import ChatAdapter
+from src.bot.application.processing_state import ProcessingState
 from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.kashiwaas_mention import is_duplicate_assistant_reply
 from src.cursor.client import AgentStatus, CursorAPIError, CursorClient, CursorTimeoutError
@@ -41,11 +43,8 @@ def run_cursor_reply(
     question: str,
     repo: ThreadConversationRepository,
     cursor_client: CursorClient,
+    adapter: ChatAdapter,
     on_poll: Callable[[float], None] | None,
-    post_assistant_text: Callable[[str], None],
-    post_plain: Callable[[str], None],
-    react_add: Callable[[str], None],
-    react_remove: Callable[[str], None],
 ) -> None:
     """
     Execute ask/followup, post the assistant reply, and manage reactions.
@@ -77,17 +76,15 @@ def run_cursor_reply(
 
         if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
             repo.delete(thread_key)
-            react_remove("eyes")
-            react_add("x")
-            post_plain("Sorry, an error occurred while generating the response. Please try again later.")
+            adapter.react(ProcessingState.FAILED)
+            adapter.post_plain("Sorry, an error occurred while generating the response. Please try again later.")
             return
 
         latest_msg = cursor_client.get_latest_assistant_message_obj(result.messages)
         if not latest_msg:
             repo.delete(thread_key)
-            react_remove("eyes")
-            react_add("x")
-            post_plain("Failed to retrieve a response. Please try again.")
+            adapter.react(ProcessingState.FAILED)
+            adapter.post_plain("Failed to retrieve a response. Please try again.")
             return
 
         last_sent_message_id = convo.last_message_id
@@ -126,40 +123,37 @@ def run_cursor_reply(
                     break
 
             if _dup():
-                react_remove("eyes")
-                react_add("x")
-                post_plain("The same response content keeps repeating. Please wait a moment and try again.")
+                adapter.react(ProcessingState.FAILED)
+                adapter.post_plain("The same response content keeps repeating. Please wait a moment and try again.")
                 return
 
         logger.info("Sending assistant message: thread={}, msg_id={}", thread_key, latest_msg.id)
         convo = convo.with_agent(result.agent_id).with_last_reply(latest_msg.id, current_fingerprint)
         repo.save(convo)
 
-        post_assistant_text(latest_msg.text)
+        adapter.post_assistant(latest_msg.text)
 
-        react_remove("eyes")
-        react_add("white_check_mark")
+        adapter.react(ProcessingState.SUCCESS)
 
     except CursorTimeoutError:
         repo_safe(lambda: repo.delete(thread_key))
-        react_remove("eyes")
-        react_add("x")
-        post_plain(
+        adapter.react(ProcessingState.FAILED)
+        adapter.post_plain(
             "Response generation timed out (agent did not finish within the poll timeout). "
             "Please shorten your question, split the task, or ask an admin to raise CURSOR_POLL_TIMEOUT."
         )
     except CursorAPIError as e:
         logger.error("Cursor API error: {}", e)
-        react_remove("eyes")
-        react_add("x")
+        adapter.react(ProcessingState.FAILED)
         if e.status_code in (401, 403):
-            post_plain("There is an issue with Cursor API authentication settings. Please contact an administrator.")
+            adapter.post_plain(
+                "There is an issue with Cursor API authentication settings. Please contact an administrator."
+            )
         else:
             repo_safe(lambda: repo.delete(thread_key))
-            post_plain("Sorry, failed to retrieve a response. Please try again later.")
+            adapter.post_plain("Sorry, failed to retrieve a response. Please try again later.")
     except Exception as e:
         logger.error("Unexpected error handling mention: {}", e)
         repo_safe(lambda: repo.delete(thread_key))
-        react_remove("eyes")
-        react_add("x")
-        post_plain("An unexpected error occurred. Please try again later.")
+        adapter.react(ProcessingState.FAILED)
+        adapter.post_plain("An unexpected error occurred. Please try again later.")

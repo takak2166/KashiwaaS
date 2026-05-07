@@ -8,6 +8,7 @@ import fakeredis
 import pytest
 
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
+from src.bot.application.processing_state import ProcessingState
 from src.bot.cursor_reply import fingerprint_text, run_cursor_reply
 from src.bot.domain.conversation import ThreadConversation
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorAPIError, CursorTimeoutError
@@ -18,6 +19,9 @@ def _repo() -> ValkeyThreadConversationRepository:
     cfg = ValkeyConfig(url="redis://ignored", thread_ttl_seconds=86400)
     return ValkeyThreadConversationRepository(cfg, client=fakeredis.FakeRedis(decode_responses=True))
 
+
+def _adapter() -> MagicMock:
+    return MagicMock()
 
 
 def _client(**kwargs) -> MagicMock:
@@ -38,10 +42,7 @@ class TestFingerprintText:
 class TestRunCursorReplyAskPath:
     def test_new_thread_ask_success_posts_assistant_and_checkmark(self) -> None:
         repo = _repo()
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.ask.return_value = AgentResult(
             agent_id="ag1",
@@ -57,25 +58,19 @@ class TestRunCursorReplyAskPath:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         cursor.ask.assert_called_once()
         assert repo.get("t1").agent_id == "ag1"
-        post_as.assert_called_once_with("Hello")
-        ra.assert_any_call("white_check_mark")
+        adapter.post_assistant.assert_called_once_with("Hello")
+        adapter.react.assert_any_call(ProcessingState.SUCCESS)
 
     def test_error_status_removes_mapping_and_posts_error_plain(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "old", None, None))
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.followup.return_value = AgentResult(
             agent_id="ag1",
@@ -88,24 +83,18 @@ class TestRunCursorReplyAskPath:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t1").agent_id is None
-        post_pl.assert_called_once()
-        assert "error occurred" in post_pl.call_args[0][0].lower()
-        ra.assert_any_call("x")
+        adapter.post_plain.assert_called_once()
+        assert "error occurred" in adapter.post_plain.call_args[0][0].lower()
+        adapter.react.assert_any_call(ProcessingState.FAILED)
 
     def test_stopped_same_as_error(self) -> None:
         repo = _repo()
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.ask.return_value = AgentResult(
             agent_id="ag1",
@@ -118,22 +107,16 @@ class TestRunCursorReplyAskPath:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t2").agent_id is None
-        ra.assert_any_call("x")
+        adapter.react.assert_any_call(ProcessingState.FAILED)
 
     def test_no_latest_message_removes_and_posts_failure(self) -> None:
         repo = _repo()
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.ask.return_value = AgentResult(
             agent_id="ag1",
@@ -147,26 +130,20 @@ class TestRunCursorReplyAskPath:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t3").agent_id is None
-        assert "Failed to retrieve" in post_pl.call_args[0][0]
-        post_as.assert_not_called()
+        assert "Failed to retrieve" in adapter.post_plain.call_args[0][0]
+        adapter.post_assistant.assert_not_called()
 
 
 class TestRunCursorReplyFollowupPath:
     def test_followup_when_agent_mapped(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag_exist", None, None))
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.followup.return_value = AgentResult(
             agent_id="ag_exist",
@@ -182,11 +159,8 @@ class TestRunCursorReplyFollowupPath:
             question="Follow?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         cursor.followup.assert_called_once_with(
@@ -196,7 +170,7 @@ class TestRunCursorReplyFollowupPath:
             on_poll=None,
         )
         cursor.ask.assert_not_called()
-        post_as.assert_called_once_with("More")
+        adapter.post_assistant.assert_called_once_with("More")
 
 
 class TestRunCursorReplyDuplicateRetry:
@@ -211,10 +185,7 @@ class TestRunCursorReplyDuplicateRetry:
             )
         )
 
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client(conversation_retry_max_retries=4)
         dup_msg = AgentMessage(id="same_id", type="assistant_message", text="duplicate body")
         fresh_msg = AgentMessage(id="new", type="assistant_message", text="fresh body")
@@ -234,25 +205,19 @@ class TestRunCursorReplyDuplicateRetry:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         cursor.get_conversation_after_complete.assert_called()
-        post_as.assert_called_once_with("fresh body")
-        ra.assert_any_call("white_check_mark")
+        adapter.post_assistant.assert_called_once_with("fresh body")
+        adapter.react.assert_any_call(ProcessingState.SUCCESS)
 
     def test_duplicate_after_max_retries_posts_repeat_message(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag1", "same", None))
 
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client(conversation_retry_max_retries=2)
         msg = AgentMessage(id="same", type="assistant_message", text="x")
         cursor.followup.return_value = AgentResult(
@@ -268,26 +233,20 @@ class TestRunCursorReplyDuplicateRetry:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
-        assert "repeating" in post_pl.call_args[0][0].lower()
-        post_as.assert_not_called()
-        ra.assert_any_call("x")
+        assert "repeating" in adapter.post_plain.call_args[0][0].lower()
+        adapter.post_assistant.assert_not_called()
+        adapter.react.assert_any_call(ProcessingState.FAILED)
 
 
 class TestRunCursorReplyExceptions:
     def test_cursor_timeout(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag1", None, None))
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.followup.side_effect = CursorTimeoutError()
 
@@ -296,24 +255,18 @@ class TestRunCursorReplyExceptions:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t1").agent_id is None
-        assert "poll timeout" in post_pl.call_args[0][0].lower()
+        assert "poll timeout" in adapter.post_plain.call_args[0][0].lower()
 
     @pytest.mark.parametrize("status", [401, 403])
     def test_cursor_api_auth_error_no_delete_posts_admin_message(self, status: int) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag1", None, None))
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.followup.side_effect = CursorAPIError(status, "nope")
 
@@ -322,23 +275,17 @@ class TestRunCursorReplyExceptions:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t1").agent_id == "ag1"
-        assert "authentication" in post_pl.call_args[0][0].lower()
+        assert "authentication" in adapter.post_plain.call_args[0][0].lower()
 
     def test_cursor_api_500_removes_mapping(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag1", None, None))
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.followup.side_effect = CursorAPIError(500, "server")
 
@@ -347,11 +294,8 @@ class TestRunCursorReplyExceptions:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t1").agent_id is None
@@ -359,10 +303,7 @@ class TestRunCursorReplyExceptions:
     def test_generic_exception_removes_mapping(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag1", None, None))
-        post_as = MagicMock()
-        post_pl = MagicMock()
-        ra = MagicMock()
-        rr = MagicMock()
+        adapter = _adapter()
         cursor = _client()
         cursor.followup.side_effect = RuntimeError("boom")
 
@@ -371,12 +312,9 @@ class TestRunCursorReplyExceptions:
             question="Q?",
             repo=repo,
             cursor_client=cursor,
+            adapter=adapter,
             on_poll=None,
-            post_assistant_text=post_as,
-            post_plain=post_pl,
-            react_add=ra,
-            react_remove=rr,
         )
 
         assert repo.get("t1").agent_id is None
-        assert "unexpected" in post_pl.call_args[0][0].lower()
+        assert "unexpected" in adapter.post_plain.call_args[0][0].lower()
