@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.bot import kashiwaas_mattermost as mm_bot
+from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.mention_service import MentionHandlerService
 from src.bot.domain.conversation import ThreadConversation
 from src.bot.kashiwaas_mention import (
     MattermostPostedEvent,
@@ -218,9 +220,8 @@ def test_mattermost_posted_event_skips_self() -> None:
     assert mattermost_posted_event_from_broadcast({"post": post_obj}, bot_user_id=uid) is None
 
 
-@patch("src.bot.kashiwaas_mattermost._is_duplicate_event", return_value=False)
-@patch("src.bot.kashiwaas_mattermost.threading.Thread")
-def test_handle_mattermost_mention_runs_cursor(mock_thread_class, _mock_dup) -> None:
+@patch("src.bot.application.mention_service.threading.Thread")
+def test_handle_mattermost_mention_runs_cursor(mock_thread_class) -> None:
     def run_target_immediately(*args, **kwargs):
         target = kwargs.get("target")
         mock_thread = MagicMock()
@@ -251,11 +252,17 @@ def test_handle_mattermost_mention_runs_cursor(mock_thread_class, _mock_dup) -> 
     store = MagicMock()
     store.get.return_value = ThreadConversation.empty("ch1:root1")
 
+    mention_service = MentionHandlerService(
+        ProcessedEventCache(mm_bot.PROCESSED_EVENT_TTL_SECONDS),
+        ThreadLockRegistry(mm_bot.THREAD_LOCK_TTL_SECONDS),
+    )
+
     mm_bot.handle_mattermost_mention(
         ev=ev,
         mm=mm,
         cursor_client=cursor,
         conversation_repo=store,
+        mention_service=mention_service,
         bot_user_id="botuid",
     )
 

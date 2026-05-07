@@ -4,10 +4,6 @@ Slack Socket Mode application that answers questions via Cursor Cloud Agents API
 """
 
 import sys
-import threading
-import time
-from contextlib import contextmanager
-from dataclasses import dataclass, field
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -15,6 +11,8 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from src.bot.adapters.slack.chat_adapter import SlackChatAdapter
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.alerter import init_alerter
+from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.mention_service import MentionHandlerService
 from src.bot.cursor_reply import run_cursor_reply
 from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.kashiwaas_mention import (
@@ -39,60 +37,11 @@ _say_markdown_chunks = _slack_md.say_markdown_chunks
 
 # Deduplicate by (channel, event_ts): skip processing if we already handled this event (e.g. Slack retry).
 PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
-_processed_events: dict[tuple[str, str], float] = {}
-_processed_events_lock = threading.Lock()
 
 # Post "still working" in the Slack thread while the Cursor agent runs.
 POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
 
 THREAD_LOCK_TTL_SECONDS = 86400  # 24 hours
-
-
-@dataclass
-class _ThreadLockEntry:
-    lock: threading.Lock
-    last_used_at: float = field(default_factory=time.time)
-
-
-_thread_locks: dict[str, _ThreadLockEntry] = {}
-_thread_locks_lock = threading.Lock()
-
-
-def _evict_thread_locks(now: float) -> None:
-    # Must be called under _thread_locks_lock
-    expired_keys = [
-        thread_ts
-        for thread_ts, entry in _thread_locks.items()
-        if now - entry.last_used_at > THREAD_LOCK_TTL_SECONDS and not entry.lock.locked()
-    ]
-    for thread_ts in expired_keys:
-        del _thread_locks[thread_ts]
-
-
-def _get_thread_lock(thread_ts: str) -> threading.Lock:
-    with _thread_locks_lock:
-        now = time.time()
-        _evict_thread_locks(now)
-        entry = _thread_locks.get(thread_ts)
-        if entry is None:
-            entry = _ThreadLockEntry(lock=threading.Lock(), last_used_at=now)
-            _thread_locks[thread_ts] = entry
-        entry.last_used_at = now
-        return entry.lock
-
-
-@contextmanager
-def _thread_ts_lock(thread_ts: str):
-    lock = _get_thread_lock(thread_ts)
-    lock.acquire()
-    try:
-        yield
-    finally:
-        with _thread_locks_lock:
-            entry = _thread_locks.get(thread_ts)
-            if entry is not None:
-                entry.last_used_at = time.time()
-        lock.release()
 
 
 def create_app(cfg: AppConfig) -> App:
@@ -118,10 +67,22 @@ def create_app(cfg: AppConfig) -> App:
         conversation_text_stabilize_max_rounds=cfg.cursor.conversation_text_stabilize_max_rounds,
     )
     conversation_repo: ThreadConversationRepository = ValkeyThreadConversationRepository(cfg.valkey)
+    mention_service = MentionHandlerService(
+        ProcessedEventCache(PROCESSED_EVENT_TTL_SECONDS),
+        ThreadLockRegistry(THREAD_LOCK_TTL_SECONDS),
+    )
 
     @app.event("app_mention")
     def handle_mention(ack, event, say, client):
-        _handle_mention(ack, event, say, client, cursor_client, conversation_repo)
+        _handle_mention(
+            ack,
+            event,
+            say,
+            client,
+            cursor_client,
+            conversation_repo,
+            mention_service=mention_service,
+        )
 
     # Debug / troubleshooting: full Bolt ``body`` (may contain message text); enable DEBUG on this logger to see it.
     @app.event("message")
@@ -157,22 +118,15 @@ def _make_poll_progress_notifier(say, thread_ts: str):
     return _on_poll
 
 
-def _is_duplicate_event(channel: str, event_ts: str) -> bool:
-    """Return True if we already processed this event (idempotency)."""
-    key = (channel, event_ts)
-    now = time.time()
-    with _processed_events_lock:
-        expired = [k for k, t in _processed_events.items() if now - t > PROCESSED_EVENT_TTL_SECONDS]
-        for k in expired:
-            del _processed_events[k]
-        if key in _processed_events:
-            return True
-        _processed_events[key] = now
-        return False
-
-
 def _handle_mention(
-    ack, event, say, client, cursor_client: CursorClient, conversation_repo: ThreadConversationRepository
+    ack,
+    event,
+    say,
+    client,
+    cursor_client: CursorClient,
+    conversation_repo: ThreadConversationRepository,
+    *,
+    mention_service: MentionHandlerService,
 ):
     """Process an app_mention event."""
     ack()
@@ -183,7 +137,7 @@ def _handle_mention(
     event_ts = ev.event_ts
     thread_ts = ev.thread_ts
 
-    if _is_duplicate_event(channel, event_ts):
+    if mention_service.is_duplicate_event(channel, event_ts):
         logger.info(f"Duplicate app_mention skipped: channel={channel}, ts={event_ts}")
         return
 
@@ -198,24 +152,23 @@ def _handle_mention(
     _add_reaction(client, channel, event_ts, "eyes")
 
     def _process():
-        with _thread_ts_lock(thread_ts):
-            adapter = SlackChatAdapter(
-                client=client,
-                channel=channel,
-                event_ts=event_ts,
-                say=say,
-                thread_ts=thread_ts,
-            )
-            run_cursor_reply(
-                thread_key=thread_ts,
-                question=question,
-                repo=conversation_repo,
-                cursor_client=cursor_client,
-                adapter=adapter,
-                on_poll=_make_poll_progress_notifier(say, thread_ts),
-            )
+        adapter = SlackChatAdapter(
+            client=client,
+            channel=channel,
+            event_ts=event_ts,
+            say=say,
+            thread_ts=thread_ts,
+        )
+        run_cursor_reply(
+            thread_key=thread_ts,
+            question=question,
+            repo=conversation_repo,
+            cursor_client=cursor_client,
+            adapter=adapter,
+            on_poll=_make_poll_progress_notifier(say, thread_ts),
+        )
 
-    threading.Thread(target=_process, daemon=True).start()
+    mention_service.run_locked_in_background(thread_ts, _process)
 
 
 def main() -> None:

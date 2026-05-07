@@ -10,10 +10,7 @@ import json
 import logging
 import ssl
 import sys
-import threading
-import time
-from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from typing import Any
 
 import websockets
@@ -24,6 +21,8 @@ from websockets.asyncio.client import connect as ws_connect
 from src.bot.adapters.mattermost.chat_adapter import MattermostChatAdapter
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.alerter import init_alerter
+from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.mention_service import MentionHandlerService
 from src.bot.cursor_reply import run_cursor_reply
 from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.kashiwaas_mention import (
@@ -42,9 +41,6 @@ POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
 PROCESSED_EVENT_TTL_SECONDS = 300
 THREAD_LOCK_TTL_SECONDS = 86400
 
-_processed_events: dict[tuple[str, str], float] = {}
-_processed_events_lock = threading.Lock()
-
 _mm_driver_ws_log = logging.getLogger("mattermostdriver.websocket")
 
 
@@ -54,65 +50,6 @@ def _mattermost_wss_ssl_context(verify_tls: bool) -> ssl.SSLContext:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
-
-
-@dataclass
-class _ThreadLockEntry:
-    lock: threading.Lock
-    last_used_at: float = field(default_factory=time.time)
-
-
-_thread_locks: dict[str, _ThreadLockEntry] = {}
-_thread_locks_lock = threading.Lock()
-
-
-def _evict_thread_locks(now: float) -> None:
-    expired_keys = [
-        k
-        for k, entry in _thread_locks.items()
-        if now - entry.last_used_at > THREAD_LOCK_TTL_SECONDS and not entry.lock.locked()
-    ]
-    for k in expired_keys:
-        del _thread_locks[k]
-
-
-def _get_thread_lock(key: str) -> threading.Lock:
-    with _thread_locks_lock:
-        now = time.time()
-        _evict_thread_locks(now)
-        entry = _thread_locks.get(key)
-        if entry is None:
-            entry = _ThreadLockEntry(lock=threading.Lock(), last_used_at=now)
-            _thread_locks[key] = entry
-        entry.last_used_at = now
-        return entry.lock
-
-
-@contextmanager
-def _thread_key_lock(thread_key: str):
-    lock = _get_thread_lock(thread_key)
-    lock.acquire()
-    try:
-        yield
-    finally:
-        with _thread_locks_lock:
-            ent = _thread_locks.get(thread_key)
-            if ent is not None:
-                ent.last_used_at = time.time()
-        lock.release()
-
-
-def _is_duplicate_event(channel_id: str, post_id: str) -> bool:
-    key = (channel_id, post_id)
-    now = time.time()
-    with _processed_events_lock:
-        expired = [k for k, t in _processed_events.items() if now - t > PROCESSED_EVENT_TTL_SECONDS]
-        for k in expired:
-            del _processed_events[k]
-        if key in _processed_events:
-            return True
-        _processed_events[key] = now
-        return False
 
 
 class _MattermostWebsocketClientTls(MattermostDriverWebsocket):
@@ -232,6 +169,7 @@ def handle_mattermost_mention(
     mm: MattermostBotClient,
     cursor_client: CursorClient,
     conversation_repo: ThreadConversationRepository,
+    mention_service: MentionHandlerService,
     bot_user_id: str,
     bot_username: str = "",
 ) -> None:
@@ -240,7 +178,7 @@ def handle_mattermost_mention(
     text = ev.raw_text
     question = extract_question_mattermost(text, bot_user_id, bot_username=bot_username)
 
-    if _is_duplicate_event(ev.channel_id, ev.event_post_id):
+    if mention_service.is_duplicate_event(ev.channel_id, ev.event_post_id):
         logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
         return
 
@@ -268,24 +206,23 @@ def handle_mattermost_mention(
         logger.error("Failed to add eyes reaction: {}", e)
 
     def _process() -> None:
-        with _thread_key_lock(thread_key):
-            adapter = MattermostChatAdapter(
-                mm=mm,
-                bot_user_id=bot_user_id,
-                event_post_id=ev.event_post_id,
-                channel_id=ev.channel_id,
-                root_post_id=ev.root_post_id,
-            )
-            run_cursor_reply(
-                thread_key=thread_key,
-                question=question,
-                repo=conversation_repo,
-                cursor_client=cursor_client,
-                adapter=adapter,
-                on_poll=_make_poll_progress_notifier(mm, ev.channel_id, ev.root_post_id),
-            )
+        adapter = MattermostChatAdapter(
+            mm=mm,
+            bot_user_id=bot_user_id,
+            event_post_id=ev.event_post_id,
+            channel_id=ev.channel_id,
+            root_post_id=ev.root_post_id,
+        )
+        run_cursor_reply(
+            thread_key=thread_key,
+            question=question,
+            repo=conversation_repo,
+            cursor_client=cursor_client,
+            adapter=adapter,
+            on_poll=_make_poll_progress_notifier(mm, ev.channel_id, ev.root_post_id),
+        )
 
-    threading.Thread(target=_process, daemon=True).start()
+    mention_service.run_locked_in_background(thread_key, _process)
 
 
 def _decode_posted_data(raw: Any) -> dict | None:
@@ -308,6 +245,7 @@ def build_websocket_handler(
     mm_client: MattermostBotClient,
     cursor_client: CursorClient,
     conversation_repo: ThreadConversationRepository,
+    mention_service: MentionHandlerService,
     bot_username: str,
 ):
     """Return async handler for mattermostdriver websocket."""
@@ -337,6 +275,7 @@ def build_websocket_handler(
             mm=mm_client,
             cursor_client=cursor_client,
             conversation_repo=conversation_repo,
+            mention_service=mention_service,
             bot_user_id=mm_cfg.bot_user_id,
             bot_username=bot_username,
         )
@@ -386,11 +325,16 @@ def main() -> None:
         logger.error("{}", e)
         sys.exit(1)
 
+    mention_service = MentionHandlerService(
+        ProcessedEventCache(PROCESSED_EVENT_TTL_SECONDS),
+        ThreadLockRegistry(THREAD_LOCK_TTL_SECONDS),
+    )
     handler = build_websocket_handler(
         mm_cfg=mm_cfg,
         mm_client=mm_client,
         cursor_client=cursor_client,
         conversation_repo=conversation_repo,
+        mention_service=mention_service,
         bot_username=bot_username,
     )
     logger.info("KashiwaaS Mattermost bot starting (WebSocket)...")
