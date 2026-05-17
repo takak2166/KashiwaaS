@@ -167,8 +167,12 @@ project/
 │   │   ├── __init__.py
 │   │   ├── alerter.py
 │   │   ├── reporter.py      # Scheduled reports
-│   │   ├── kashiwaas.py     # KashiwaaS bot (Socket Mode)
-│   │   ├── thread_store.py
+│   │   ├── kashiwaas.py            # Slack launcher (Socket Mode)
+│   │   ├── kashiwaas_mattermost.py # Mattermost launcher
+│   │   ├── domain/                 # Aggregates & ports
+│   │   ├── application/            # mention_service, concurrency, chat adapters protocol
+│   │   ├── infra/                  # e.g. Cursor client factory
+│   │   ├── adapters/               # slack/app, mattermost/app, valkey repo
 │   │   ├── utils.py
 │   │   └── formatter.py     # Message formatting
 │   ├── cursor/
