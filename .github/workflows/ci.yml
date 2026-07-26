@@ -179,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack
-        uses: slackapi/slack-github-action@v3.0.3
+        uses: slackapi/slack-github-action@v3.0.5
         with:
           channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
           slack-message: |
