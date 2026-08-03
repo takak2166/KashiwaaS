@@ -12,7 +12,7 @@ from valkey.exceptions import ValkeyError
 
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
-from src.bot.application.cursor_reply import repo_safe as _repo_safe
+from src.bot.application.cursor_reply import clear_conversation as _clear_conversation
 from src.bot.application.mention_service import MentionHandlerService
 from src.bot.domain.conversation import ThreadConversation
 from src.bot.kashiwaas import (
@@ -186,21 +186,21 @@ class TestPollProgressNotifier:
         assert len(calls) == 2
 
 
-class TestRepoSafe:
-    def test_returns_fn_result(self):
-        assert _repo_safe(lambda: "ok") == "ok"
+class TestClearConversation:
+    def test_returns_true_on_success(self):
+        repo = MagicMock()
+        assert _clear_conversation(repo, "t1") is True
+        repo.delete.assert_called_once_with("t1")
 
-    def test_swallows_valkey_error(self):
-        def boom():
-            raise ValkeyError("boom")
+    def test_returns_false_on_valkey_error(self):
+        repo = MagicMock()
+        repo.delete.side_effect = ValkeyError("boom")
+        assert _clear_conversation(repo, "t1") is False
 
-        assert _repo_safe(boom, default=42) == 42
-
-    def test_swallows_redis_error(self):
-        def boom():
-            raise ResponseError("boom")
-
-        assert _repo_safe(boom) is None
+    def test_returns_false_on_redis_error(self):
+        repo = MagicMock()
+        repo.delete.side_effect = ResponseError("boom")
+        assert _clear_conversation(repo, "t1") is False
 
 
 class TestHandleMention:

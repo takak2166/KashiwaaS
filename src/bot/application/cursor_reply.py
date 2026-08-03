@@ -27,13 +27,35 @@ def fingerprint_text(text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def repo_safe(fn: Callable[[], object], /, *, default: object | None = None) -> object:
-    """Run a repository op; log and swallow Valkey/redis errors."""
+def clear_conversation(repo: ThreadConversationRepository, thread_key: str) -> bool:
+    """Delete mapping; return False and log at error if Valkey/redis fails (do not swallow silently)."""
     try:
-        return fn()
+        repo.delete(thread_key)
+        return True
     except (ValkeyError, RedisError) as e:
-        logger.warning("ThreadConversationRepository operation failed (ignored): {}", e)
-        return default
+        logger.error("Failed to clear conversation mapping thread={}: {}", thread_key, e)
+        return False
+
+
+def _fail_after_clear(
+    *,
+    repo: ThreadConversationRepository,
+    thread_key: str,
+    adapter: ChatAdapter,
+    user_message: str,
+    clear: bool = True,
+) -> None:
+    cleared = True
+    if clear:
+        cleared = clear_conversation(repo, thread_key)
+    adapter.react(ProcessingState.FAILED)
+    if clear and not cleared:
+        adapter.post_plain(
+            f"{user_message} "
+            "Conversation state could not be reset; please contact an administrator if replies look stuck."
+        )
+    else:
+        adapter.post_plain(user_message)
 
 
 def run_cursor_reply(
@@ -71,16 +93,22 @@ def run_cursor_reply(
             )
 
         if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-            repo_safe(lambda: repo.delete(thread_key))
-            adapter.react(ProcessingState.FAILED)
-            adapter.post_plain("Sorry, an error occurred while generating the response. Please try again later.")
+            _fail_after_clear(
+                repo=repo,
+                thread_key=thread_key,
+                adapter=adapter,
+                user_message="Sorry, an error occurred while generating the response. Please try again later.",
+            )
             return
 
         latest_msg = cursor.get_latest_assistant_message_obj(result.messages)
         if not latest_msg:
-            repo_safe(lambda: repo.delete(thread_key))
-            adapter.react(ProcessingState.FAILED)
-            adapter.post_plain("Failed to retrieve a response. Please try again.")
+            _fail_after_clear(
+                repo=repo,
+                thread_key=thread_key,
+                adapter=adapter,
+                user_message="Failed to retrieve a response. Please try again.",
+            )
             return
 
         current_fingerprint = fingerprint_text(latest_msg.text)
@@ -125,22 +153,34 @@ def run_cursor_reply(
         adapter.react(ProcessingState.SUCCESS)
 
     except CursorTimeoutError:
-        repo_safe(lambda: repo.delete(thread_key))
-        adapter.react(ProcessingState.FAILED)
-        adapter.post_plain(
-            "Response generation timed out (agent did not finish within the poll timeout). "
-            "Please shorten your question, split the task, or ask an admin to raise CURSOR_POLL_TIMEOUT."
+        _fail_after_clear(
+            repo=repo,
+            thread_key=thread_key,
+            adapter=adapter,
+            user_message=(
+                "Response generation timed out (agent did not finish within the poll timeout). "
+                "Please shorten your question, split the task, or ask an admin to raise CURSOR_POLL_TIMEOUT."
+            ),
         )
     except CursorAPIError as e:
         logger.exception("Cursor API error")
-        adapter.react(ProcessingState.FAILED)
         if e.status_code in (401, 403):
-            adapter.post_plain(
-                "There is an issue with Cursor API authentication settings. Please contact an administrator."
+            _fail_after_clear(
+                repo=repo,
+                thread_key=thread_key,
+                adapter=adapter,
+                user_message=(
+                    "There is an issue with Cursor API authentication settings. Please contact an administrator."
+                ),
+                clear=False,
             )
         else:
-            repo_safe(lambda: repo.delete(thread_key))
-            adapter.post_plain("Sorry, failed to retrieve a response. Please try again later.")
+            _fail_after_clear(
+                repo=repo,
+                thread_key=thread_key,
+                adapter=adapter,
+                user_message="Sorry, failed to retrieve a response. Please try again later.",
+            )
     except (ValkeyError, RedisError):
         # Persistence failure must not clear an existing healthy mapping (e.g. save after Cursor success).
         logger.exception("ThreadConversationRepository error thread={}", thread_key)
@@ -148,6 +188,9 @@ def run_cursor_reply(
         adapter.post_plain("Temporary storage error. Please try again later.")
     except Exception:
         logger.exception("Unexpected error handling mention")
-        repo_safe(lambda: repo.delete(thread_key))
-        adapter.react(ProcessingState.FAILED)
-        adapter.post_plain("An unexpected error occurred. Please try again later.")
+        _fail_after_clear(
+            repo=repo,
+            thread_key=thread_key,
+            adapter=adapter,
+            user_message="An unexpected error occurred. Please try again later.",
+        )

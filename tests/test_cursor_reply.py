@@ -332,6 +332,36 @@ class TestRunCursorReplyExceptions:
 
         assert repo.get("t1").agent_id is None
 
+    def test_delete_failure_after_error_notifies_and_keeps_mapping(self) -> None:
+        """C2: failed cleanup must surface to the user (no silent sticky agent_id)."""
+        from valkey.exceptions import ValkeyError
+
+        repo = _repo()
+        repo.save(ThreadConversation("t1", "ag1", None, None))
+        adapter = _adapter()
+        cursor = _client()
+        cursor.followup.side_effect = CursorTimeoutError()
+        original_delete = repo.delete
+
+        def boom_delete(thread_key: str) -> None:
+            raise ValkeyError("delete failed")
+
+        repo.delete = boom_delete  # type: ignore[method-assign]
+
+        run_cursor_reply(
+            thread_key="t1",
+            question="Q?",
+            repo=repo,
+            cursor=cursor,
+            adapter=adapter,
+            on_poll=None,
+        )
+
+        repo.delete = original_delete  # type: ignore[method-assign]
+        assert repo.get("t1").agent_id == "ag1"
+        assert "could not be reset" in adapter.posts_plain[0].lower()
+        assert ProcessingState.FAILED in adapter.reacts
+
     def test_generic_exception_removes_mapping(self) -> None:
         repo = _repo()
         repo.save(ThreadConversation("t1", "ag1", None, None))
