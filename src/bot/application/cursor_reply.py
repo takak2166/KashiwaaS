@@ -72,11 +72,13 @@ def run_cursor_reply(
 
     Callers should add an initial \"processing\" reaction before invoking this.
     """
+    op = "unknown"
     try:
         convo = repo.get(thread_key)
         agent_id = convo.agent_id
         expected_previous_message_id = convo.last_message_id
         if agent_id:
+            op = "followup"
             logger.info("Followup in thread {} -> agent {}", thread_key, agent_id)
             result = cursor.followup(
                 agent_id,
@@ -85,6 +87,7 @@ def run_cursor_reply(
                 on_poll=on_poll,
             )
         else:
+            op = "ask"
             logger.info("New question in thread {}: {}...", thread_key, question[:80])
             result = cursor.ask(
                 question,
@@ -93,6 +96,13 @@ def run_cursor_reply(
             )
 
         if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
+            logger.warning(
+                "Cursor agent ended with status={} op={} thread={} agent={}",
+                result.status,
+                op,
+                thread_key,
+                result.agent_id,
+            )
             _fail_after_clear(
                 repo=repo,
                 thread_key=thread_key,
@@ -103,6 +113,12 @@ def run_cursor_reply(
 
         latest_msg = cursor.get_latest_assistant_message_obj(result.messages)
         if not latest_msg:
+            logger.warning(
+                "No assistant message in Cursor result op={} thread={} agent={}",
+                op,
+                thread_key,
+                result.agent_id,
+            )
             _fail_after_clear(
                 repo=repo,
                 thread_key=thread_key,
@@ -140,6 +156,13 @@ def run_cursor_reply(
                     break
 
             if _dup():
+                logger.warning(
+                    "Duplicate assistant reply exhausted retries op={} thread={} agent={} msg_id={}",
+                    op,
+                    thread_key,
+                    result.agent_id,
+                    latest_msg.id,
+                )
                 adapter.react(ProcessingState.FAILED)
                 adapter.post_plain("The same response content keeps repeating. Please wait a moment and try again.")
                 return
@@ -153,6 +176,7 @@ def run_cursor_reply(
         adapter.react(ProcessingState.SUCCESS)
 
     except CursorTimeoutError:
+        logger.warning("Cursor poll timeout op={} thread={}", op, thread_key)
         _fail_after_clear(
             repo=repo,
             thread_key=thread_key,
@@ -163,7 +187,12 @@ def run_cursor_reply(
             ),
         )
     except CursorAPIError as e:
-        logger.exception("Cursor API error")
+        logger.exception(
+            "Cursor API error op={} thread={} status={}",
+            op,
+            thread_key,
+            e.status_code,
+        )
         if e.status_code in (401, 403):
             _fail_after_clear(
                 repo=repo,
