@@ -16,7 +16,6 @@ from valkey.exceptions import ValkeyError
 from src.bot.application.chat_adapter import ChatAdapter
 from src.bot.application.processing_state import ProcessingState
 from src.bot.domain.repository import ThreadConversationRepository
-from src.bot.kashiwaas_mention import is_duplicate_assistant_reply
 from src.cursor.client import AgentStatus, CursorAPIError, CursorClient, CursorTimeoutError
 from src.utils.logger import get_logger
 
@@ -42,7 +41,7 @@ def run_cursor_reply(
     thread_key: str,
     question: str,
     repo: ThreadConversationRepository,
-    cursor_client: CursorClient,
+    cursor: CursorClient,
     adapter: ChatAdapter,
     on_poll: Callable[[float], None] | None,
 ) -> None:
@@ -57,7 +56,7 @@ def run_cursor_reply(
         expected_previous_message_id = convo.last_message_id
         if agent_id:
             logger.info("Followup in thread {} -> agent {}", thread_key, agent_id)
-            result = cursor_client.followup(
+            result = cursor.followup(
                 agent_id,
                 question,
                 expected_previous_message_id=expected_previous_message_id,
@@ -65,42 +64,32 @@ def run_cursor_reply(
             )
         else:
             logger.info("New question in thread {}: {}...", thread_key, question[:80])
-            result = cursor_client.ask(
+            result = cursor.ask(
                 question,
                 expected_previous_message_id=expected_previous_message_id,
                 on_poll=on_poll,
             )
-            if result.status not in (AgentStatus.ERROR, AgentStatus.STOPPED):
-                convo = convo.with_agent(result.agent_id)
-                repo.save(convo)
 
         if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
-            repo.delete(thread_key)
+            repo_safe(lambda: repo.delete(thread_key))
             adapter.react(ProcessingState.FAILED)
             adapter.post_plain("Sorry, an error occurred while generating the response. Please try again later.")
             return
 
-        latest_msg = cursor_client.get_latest_assistant_message_obj(result.messages)
+        latest_msg = cursor.get_latest_assistant_message_obj(result.messages)
         if not latest_msg:
-            repo.delete(thread_key)
+            repo_safe(lambda: repo.delete(thread_key))
             adapter.react(ProcessingState.FAILED)
             adapter.post_plain("Failed to retrieve a response. Please try again.")
             return
 
-        last_sent_message_id = convo.last_message_id
-        last_sent_fingerprint = convo.last_fingerprint
         current_fingerprint = fingerprint_text(latest_msg.text)
 
         def _dup() -> bool:
-            return is_duplicate_assistant_reply(
-                last_sent_message_id=last_sent_message_id,
-                last_sent_fingerprint=last_sent_fingerprint,
-                assistant_message_id=latest_msg.id,
-                assistant_text_fingerprint=current_fingerprint,
-            )
+            return convo.is_duplicate(message_id=latest_msg.id, fingerprint=current_fingerprint)
 
         if _dup():
-            max_retries = cursor_client.conversation_retry_max_retries
+            max_retries = cursor.conversation_retry_max_retries
             for attempt in range(max_retries):
                 logger.info(
                     "Duplicate assistant message detected; retrying conversation fetch "
@@ -110,11 +99,11 @@ def run_cursor_reply(
                     thread_key,
                     latest_msg.id,
                 )
-                refreshed = cursor_client.get_conversation_after_complete(
+                refreshed = cursor.get_conversation_after_complete(
                     result.agent_id,
                     expected_previous_message_id=latest_msg.id,
                 )
-                latest = cursor_client.get_latest_assistant_message_obj(refreshed)
+                latest = cursor.get_latest_assistant_message_obj(refreshed)
                 if not latest:
                     break
                 latest_msg = latest
@@ -143,7 +132,7 @@ def run_cursor_reply(
             "Please shorten your question, split the task, or ask an admin to raise CURSOR_POLL_TIMEOUT."
         )
     except CursorAPIError as e:
-        logger.error("Cursor API error: {}", e)
+        logger.exception("Cursor API error")
         adapter.react(ProcessingState.FAILED)
         if e.status_code in (401, 403):
             adapter.post_plain(
@@ -152,8 +141,8 @@ def run_cursor_reply(
         else:
             repo_safe(lambda: repo.delete(thread_key))
             adapter.post_plain("Sorry, failed to retrieve a response. Please try again later.")
-    except Exception as e:
-        logger.error("Unexpected error handling mention: {}", e)
+    except Exception:
+        logger.exception("Unexpected error handling mention")
         repo_safe(lambda: repo.delete(thread_key))
         adapter.react(ProcessingState.FAILED)
         adapter.post_plain("An unexpected error occurred. Please try again later.")

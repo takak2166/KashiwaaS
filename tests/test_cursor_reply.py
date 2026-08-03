@@ -1,27 +1,59 @@
-"""Tests for src.bot.cursor_reply.run_cursor_reply orchestration."""
+"""Tests for src.bot.application.cursor_reply.run_cursor_reply orchestration."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
-import fakeredis
 import pytest
 
-from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
+from src.bot.application.cursor_reply import fingerprint_text, run_cursor_reply
 from src.bot.application.processing_state import ProcessingState
-from src.bot.cursor_reply import fingerprint_text, run_cursor_reply
 from src.bot.domain.conversation import ThreadConversation
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorAPIError, CursorTimeoutError
-from src.utils.config import ValkeyConfig
 
 
-def _repo() -> ValkeyThreadConversationRepository:
-    cfg = ValkeyConfig(url="redis://ignored", thread_ttl_seconds=86400)
-    return ValkeyThreadConversationRepository(cfg, client=fakeredis.FakeRedis(decode_responses=True))
+@dataclass
+class InMemoryThreadConversationRepository:
+    """Test double for ThreadConversationRepository (no Valkey)."""
+
+    _data: dict[str, ThreadConversation] = field(default_factory=dict)
+
+    def get(self, thread_key: str) -> ThreadConversation:
+        return self._data.get(thread_key) or ThreadConversation.empty(thread_key)
+
+    def save(self, convo: ThreadConversation) -> None:
+        if convo.agent_id is None:
+            self._data.pop(convo.thread_key, None)
+            return
+        self._data[convo.thread_key] = convo
+
+    def delete(self, thread_key: str) -> None:
+        self._data.pop(thread_key, None)
 
 
-def _adapter() -> MagicMock:
-    return MagicMock()
+@dataclass
+class FakeChatAdapter:
+    posts_plain: list[str] = field(default_factory=list)
+    posts_assistant: list[str] = field(default_factory=list)
+    reacts: list[ProcessingState] = field(default_factory=list)
+
+    def post_plain(self, text: str) -> None:
+        self.posts_plain.append(text)
+
+    def post_assistant(self, text: str) -> None:
+        self.posts_assistant.append(text)
+
+    def react(self, state: ProcessingState) -> None:
+        self.reacts.append(state)
+
+
+def _repo() -> InMemoryThreadConversationRepository:
+    return InMemoryThreadConversationRepository()
+
+
+def _adapter() -> FakeChatAdapter:
+    return FakeChatAdapter()
 
 
 def _client(**kwargs) -> MagicMock:
@@ -57,15 +89,15 @@ class TestRunCursorReplyAskPath:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         cursor.ask.assert_called_once()
         assert repo.get("t1").agent_id == "ag1"
-        adapter.post_assistant.assert_called_once_with("Hello")
-        adapter.react.assert_any_call(ProcessingState.SUCCESS)
+        assert adapter.posts_assistant == ["Hello"]
+        assert ProcessingState.SUCCESS in adapter.reacts
 
     def test_error_status_removes_mapping_and_posts_error_plain(self) -> None:
         repo = _repo()
@@ -82,15 +114,15 @@ class TestRunCursorReplyAskPath:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         assert repo.get("t1").agent_id is None
-        adapter.post_plain.assert_called_once()
-        assert "error occurred" in adapter.post_plain.call_args[0][0].lower()
-        adapter.react.assert_any_call(ProcessingState.FAILED)
+        assert len(adapter.posts_plain) == 1
+        assert "error occurred" in adapter.posts_plain[0].lower()
+        assert ProcessingState.FAILED in adapter.reacts
 
     def test_stopped_same_as_error(self) -> None:
         repo = _repo()
@@ -106,13 +138,13 @@ class TestRunCursorReplyAskPath:
             thread_key="t2",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         assert repo.get("t2").agent_id is None
-        adapter.react.assert_any_call(ProcessingState.FAILED)
+        assert ProcessingState.FAILED in adapter.reacts
 
     def test_no_latest_message_removes_and_posts_failure(self) -> None:
         repo = _repo()
@@ -129,14 +161,14 @@ class TestRunCursorReplyAskPath:
             thread_key="t3",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         assert repo.get("t3").agent_id is None
-        assert "Failed to retrieve" in adapter.post_plain.call_args[0][0]
-        adapter.post_assistant.assert_not_called()
+        assert "Failed to retrieve" in adapter.posts_plain[0]
+        assert adapter.posts_assistant == []
 
 
 class TestRunCursorReplyFollowupPath:
@@ -158,7 +190,7 @@ class TestRunCursorReplyFollowupPath:
             thread_key="t1",
             question="Follow?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
@@ -170,7 +202,7 @@ class TestRunCursorReplyFollowupPath:
             on_poll=None,
         )
         cursor.ask.assert_not_called()
-        adapter.post_assistant.assert_called_once_with("More")
+        assert adapter.posts_assistant == ["More"]
 
 
 class TestRunCursorReplyDuplicateRetry:
@@ -204,14 +236,14 @@ class TestRunCursorReplyDuplicateRetry:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         cursor.get_conversation_after_complete.assert_called()
-        adapter.post_assistant.assert_called_once_with("fresh body")
-        adapter.react.assert_any_call(ProcessingState.SUCCESS)
+        assert adapter.posts_assistant == ["fresh body"]
+        assert ProcessingState.SUCCESS in adapter.reacts
 
     def test_duplicate_after_max_retries_posts_repeat_message(self) -> None:
         repo = _repo()
@@ -232,14 +264,14 @@ class TestRunCursorReplyDuplicateRetry:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
-        assert "repeating" in adapter.post_plain.call_args[0][0].lower()
-        adapter.post_assistant.assert_not_called()
-        adapter.react.assert_any_call(ProcessingState.FAILED)
+        assert "repeating" in adapter.posts_plain[0].lower()
+        assert adapter.posts_assistant == []
+        assert ProcessingState.FAILED in adapter.reacts
 
 
 class TestRunCursorReplyExceptions:
@@ -254,13 +286,13 @@ class TestRunCursorReplyExceptions:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         assert repo.get("t1").agent_id is None
-        assert "poll timeout" in adapter.post_plain.call_args[0][0].lower()
+        assert "poll timeout" in adapter.posts_plain[0].lower()
 
     @pytest.mark.parametrize("status", [401, 403])
     def test_cursor_api_auth_error_no_delete_posts_admin_message(self, status: int) -> None:
@@ -274,13 +306,13 @@ class TestRunCursorReplyExceptions:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         assert repo.get("t1").agent_id == "ag1"
-        assert "authentication" in adapter.post_plain.call_args[0][0].lower()
+        assert "authentication" in adapter.posts_plain[0].lower()
 
     def test_cursor_api_500_removes_mapping(self) -> None:
         repo = _repo()
@@ -293,7 +325,7 @@ class TestRunCursorReplyExceptions:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
@@ -311,10 +343,10 @@ class TestRunCursorReplyExceptions:
             thread_key="t1",
             question="Q?",
             repo=repo,
-            cursor_client=cursor,
+            cursor=cursor,
             adapter=adapter,
             on_poll=None,
         )
 
         assert repo.get("t1").agent_id is None
-        assert "unexpected" in adapter.post_plain.call_args[0][0].lower()
+        assert "unexpected" in adapter.posts_plain[0].lower()

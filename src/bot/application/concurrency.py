@@ -61,8 +61,8 @@ class ProcessedEventCache:
         self._seen: dict[tuple[str, str], float] = {}
         self._guard = threading.Lock()
 
-    def is_duplicate_event(self, channel: str, event_ts: str) -> bool:
-        key = (channel, event_ts)
+    def seen(self, key: tuple[str, str]) -> bool:
+        """Return True if ``key`` was already seen (and mark it on first sight)."""
         now = time.time()
         with self._guard:
             expired = [k for k, t in self._seen.items() if now - t > self._ttl_seconds]

@@ -7,10 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.bot import kashiwaas_mattermost as mm_bot
-from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
-from src.bot.application.mention_service import MentionHandlerService
-from src.bot.domain.conversation import ThreadConversation
-from src.bot.kashiwaas_mention import (
+from src.bot.adapters.mattermost.mention_parser import (
     MattermostPostedEvent,
     extract_question_mattermost,
     mattermost_broadcast_mentions_bot,
@@ -18,6 +15,9 @@ from src.bot.kashiwaas_mention import (
     mattermost_posted_event_from_broadcast,
     mattermost_root_post_id,
 )
+from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.mention_service import MentionHandlerService
+from src.bot.domain.conversation import ThreadConversation
 from src.cursor.client import AgentMessage, AgentResult, AgentStatus
 from src.utils.config import ConfigError, MattermostConfig
 

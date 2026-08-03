@@ -16,18 +16,18 @@ from mattermostdriver.websocket import Websocket as MattermostDriverWebsocket
 from websockets.asyncio.client import connect as ws_connect
 
 from src.bot.adapters.mattermost.chat_adapter import MattermostChatAdapter
+from src.bot.adapters.mattermost.mention_parser import (
+    MattermostPostedEvent,
+    bot_mention_from_posted_event,
+    mattermost_posted_event_from_broadcast,
+)
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.alerter import init_alerter
 from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.cursor_reply import run_cursor_reply
 from src.bot.application.mention_service import MentionHandlerService
-from src.bot.cursor_reply import run_cursor_reply
 from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.infra.cursor_client_factory import build_cursor_client
-from src.bot.kashiwaas_mention import (
-    MattermostPostedEvent,
-    extract_question_mattermost,
-    mattermost_posted_event_from_broadcast,
-)
 from src.cursor.client import CursorClient
 from src.mattermost.client import MattermostBotClient
 from src.utils.config import AppConfig, ConfigError, MattermostConfig, apply_dotenv, load_config
@@ -153,38 +153,31 @@ def handle_mattermost_mention(
     bot_username: str = "",
 ) -> None:
     """Process a normalized Mattermost mention (runs reply in a background thread)."""
-    thread_key = f"{ev.channel_id}:{ev.root_post_id}"
-    text = ev.raw_text
-    question = extract_question_mattermost(text, bot_user_id, bot_username=bot_username)
+    mention = bot_mention_from_posted_event(ev, bot_user_id=bot_user_id, bot_username=bot_username)
 
-    if mention_service.is_duplicate_event(ev.channel_id, ev.event_post_id):
-        logger.info("Duplicate posted event skipped: channel={} post={}", ev.channel_id, ev.event_post_id)
-        return
-
-    # Debug / troubleshooting: full mention post text (may contain secrets or PII).
     logger.debug(
         "mattermost mention: channel={} root={} post={} text={!r}",
         ev.channel_id,
         ev.root_post_id,
         ev.event_post_id,
-        text,
+        mention.raw_text,
     )
 
-    if not question:
+    def on_empty_question() -> None:
         hint = f"@{bot_username}" if (bot_username or "").strip() else f"@{bot_user_id}"
         mm.create_post(
             ev.channel_id,
             f"Please enter a question. Example: `{hint} How do I use Python async?`",
             root_id=ev.root_post_id,
         )
-        return
 
-    try:
-        mm.add_reaction(bot_user_id, ev.event_post_id, "eyes")
-    except Exception as e:
-        logger.error("Failed to add eyes reaction: {}", e)
+    def on_start() -> None:
+        try:
+            mm.add_reaction(bot_user_id, ev.event_post_id, "eyes")
+        except Exception as e:
+            logger.error("Failed to add eyes reaction: {}", e)
 
-    def _process() -> None:
+    def process() -> None:
         adapter = MattermostChatAdapter(
             mm=mm,
             bot_user_id=bot_user_id,
@@ -208,15 +201,20 @@ def handle_mattermost_mention(
                 next_at += POLL_PROGRESS_POST_INTERVAL_SECONDS
 
         run_cursor_reply(
-            thread_key=thread_key,
-            question=question,
+            thread_key=mention.thread_key,
+            question=mention.question,
             repo=conversation_repo,
-            cursor_client=cursor_client,
+            cursor=cursor_client,
             adapter=adapter,
             on_poll=on_poll,
         )
 
-    mention_service.run_locked_in_background(thread_key, _process)
+    mention_service.handle(
+        mention,
+        on_empty_question=on_empty_question,
+        on_start=on_start,
+        process=process,
+    )
 
 
 def _decode_posted_data(raw: Any) -> dict | None:

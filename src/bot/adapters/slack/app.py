@@ -3,16 +3,13 @@
 from slack_bolt import App
 
 from src.bot.adapters.slack.chat_adapter import SlackChatAdapter
+from src.bot.adapters.slack.mention_parser import bot_mention_from_slack_event, extract_question
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.cursor_reply import run_cursor_reply
 from src.bot.application.mention_service import MentionHandlerService
-from src.bot.cursor_reply import run_cursor_reply
 from src.bot.domain.repository import ThreadConversationRepository
 from src.bot.infra.cursor_client_factory import build_cursor_client
-from src.bot.kashiwaas_mention import (
-    extract_question,
-    slack_mention_event_from_dict,
-)
 from src.cursor.client import CursorClient
 from src.slack import markdown_blocks as _slack_md
 from src.utils.config import AppConfig, ConfigError
@@ -29,13 +26,9 @@ _split_message = _slack_md.split_slack_message_text
 _fallback_notification_text = _slack_md.fallback_notification_text
 _say_markdown_chunks = _slack_md.say_markdown_chunks
 
-# Deduplicate by (channel, event_ts): skip processing if we already handled this event (e.g. Slack retry).
-PROCESSED_EVENT_TTL_SECONDS = 300  # 5 minutes
-
-# Post "still working" in the Slack thread while the Cursor agent runs.
+PROCESSED_EVENT_TTL_SECONDS = 300
 POLL_PROGRESS_POST_INTERVAL_SECONDS = 300
-
-THREAD_LOCK_TTL_SECONDS = 86400  # 24 hours
+THREAD_LOCK_TTL_SECONDS = 86400
 
 
 def create_app(cfg: AppConfig) -> App:
@@ -66,7 +59,6 @@ def create_app(cfg: AppConfig) -> App:
             mention_service=mention_service,
         )
 
-    # Debug / troubleshooting: full Bolt ``body`` (may contain message text); enable DEBUG on this logger to see it.
     @app.event("message")
     def handle_message_events(body, logger):
         logger.debug(body)
@@ -110,30 +102,27 @@ def _handle_mention(
     *,
     mention_service: MentionHandlerService,
 ):
-    """Process an app_mention event."""
+    """Process an app_mention event. ``ack()`` must run first (Bolt contract)."""
     ack()
 
-    ev = slack_mention_event_from_dict(event)
-    text = ev.raw_text
-    channel = ev.channel
-    event_ts = ev.event_ts
-    thread_ts = ev.thread_ts
+    mention = bot_mention_from_slack_event(event)
+    channel, event_ts = mention.event_key
+    thread_ts = mention.thread_key
 
-    if mention_service.is_duplicate_event(channel, event_ts):
-        logger.info(f"Duplicate app_mention skipped: channel={channel}, ts={event_ts}")
-        return
+    logger.debug(
+        f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={mention.raw_text!r}"
+    )
 
-    # Debug / troubleshooting: full mention text (may contain secrets or PII).
-    logger.debug(f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={text!r}")
+    def on_empty_question() -> None:
+        say(
+            text="Please enter a question. Example: `@kashiwaas How do I use Python async?`",
+            thread_ts=thread_ts,
+        )
 
-    question = extract_question(text)
-    if not question:
-        say(text="Please enter a question. Example: `@kashiwaas How do I use Python async?`", thread_ts=thread_ts)
-        return
+    def on_start() -> None:
+        _add_reaction(client, channel, event_ts, "eyes")
 
-    _add_reaction(client, channel, event_ts, "eyes")
-
-    def _process():
+    def process() -> None:
         adapter = SlackChatAdapter(
             client=client,
             channel=channel,
@@ -143,11 +132,16 @@ def _handle_mention(
         )
         run_cursor_reply(
             thread_key=thread_ts,
-            question=question,
+            question=mention.question,
             repo=conversation_repo,
-            cursor_client=cursor_client,
+            cursor=cursor_client,
             adapter=adapter,
             on_poll=_make_poll_progress_notifier(say, thread_ts),
         )
 
-    mention_service.run_locked_in_background(thread_ts, _process)
+    mention_service.handle(
+        mention,
+        on_empty_question=on_empty_question,
+        on_start=on_start,
+        process=process,
+    )

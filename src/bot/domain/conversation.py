@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from src.bot.domain.mention import is_duplicate_assistant_reply
+
 
 @dataclass(frozen=True)
 class ThreadConversation:
@@ -29,3 +31,11 @@ class ThreadConversation:
         if self.agent_id is None:
             return self
         return replace(self, last_message_id=message_id, last_fingerprint=fingerprint)
+
+    def is_duplicate(self, *, message_id: str, fingerprint: str) -> bool:
+        return is_duplicate_assistant_reply(
+            last_sent_message_id=self.last_message_id,
+            last_sent_fingerprint=self.last_fingerprint,
+            assistant_message_id=message_id,
+            assistant_text_fingerprint=fingerprint,
+        )

@@ -12,8 +12,8 @@ from valkey.exceptions import ValkeyError
 
 from src.bot.adapters.valkey.thread_conversation_repo import ValkeyThreadConversationRepository
 from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
+from src.bot.application.cursor_reply import repo_safe as _repo_safe
 from src.bot.application.mention_service import MentionHandlerService
-from src.bot.cursor_reply import repo_safe as _repo_safe
 from src.bot.domain.conversation import ThreadConversation
 from src.bot.kashiwaas import (
     POLL_PROGRESS_POST_INTERVAL_SECONDS,
@@ -451,8 +451,9 @@ class TestThreadLocks:
         """When the same event is delivered again (e.g. Slack retry), we skip and do not reply."""
         from src.bot.kashiwaas import _handle_mention
 
-        mention_service = MagicMock(spec=MentionHandlerService)
-        mention_service.is_duplicate_event.return_value = True
+        cache = ProcessedEventCache(PROCESSED_EVENT_TTL_SECONDS)
+        assert cache.seen(("C123", "1234.5678")) is False
+        mention_service = MentionHandlerService(cache, ThreadLockRegistry(THREAD_LOCK_TTL_SECONDS))
 
         ack = MagicMock()
         event = {
@@ -467,7 +468,6 @@ class TestThreadLocks:
         _handle_mention(ack, event, say, client, cursor_client, MagicMock(), mention_service=mention_service)
 
         ack.assert_called_once()
-        mention_service.is_duplicate_event.assert_called_once_with("C123", "1234.5678")
         say.assert_not_called()
         client.reactions_add.assert_not_called()
         cursor_client.ask.assert_not_called()
