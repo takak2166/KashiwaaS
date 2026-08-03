@@ -350,3 +350,42 @@ class TestRunCursorReplyExceptions:
 
         assert repo.get("t1").agent_id is None
         assert "unexpected" in adapter.posts_plain[0].lower()
+
+    def test_save_valkey_error_keeps_existing_mapping(self) -> None:
+        """C1: persistence failure after Cursor success must not delete a healthy mapping."""
+        from valkey.exceptions import ValkeyError
+
+        repo = _repo()
+        repo.save(ThreadConversation("t1", "ag_exist", None, None))
+        adapter = _adapter()
+        cursor = _client()
+        cursor.followup.return_value = AgentResult(
+            agent_id="ag_exist",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m2", type="assistant_message", text="More")],
+        )
+        cursor.get_latest_assistant_message_obj.return_value = AgentMessage(
+            id="m2", type="assistant_message", text="More"
+        )
+        original_save = repo.save
+
+        def boom_save(convo: ThreadConversation) -> None:
+            if convo.last_message_id is not None:
+                raise ValkeyError("save failed")
+            original_save(convo)
+
+        repo.save = boom_save  # type: ignore[method-assign]
+
+        run_cursor_reply(
+            thread_key="t1",
+            question="Follow?",
+            repo=repo,
+            cursor=cursor,
+            adapter=adapter,
+            on_poll=None,
+        )
+
+        assert repo.get("t1").agent_id == "ag_exist"
+        assert adapter.posts_assistant == []
+        assert ProcessingState.FAILED in adapter.reacts
+        assert "storage" in adapter.posts_plain[0].lower()

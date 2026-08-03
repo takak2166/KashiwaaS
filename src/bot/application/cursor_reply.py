@@ -141,6 +141,11 @@ def run_cursor_reply(
         else:
             repo_safe(lambda: repo.delete(thread_key))
             adapter.post_plain("Sorry, failed to retrieve a response. Please try again later.")
+    except (ValkeyError, RedisError):
+        # Persistence failure must not clear an existing healthy mapping (e.g. save after Cursor success).
+        logger.exception("ThreadConversationRepository error thread={}", thread_key)
+        adapter.react(ProcessingState.FAILED)
+        adapter.post_plain("Temporary storage error. Please try again later.")
     except Exception:
         logger.exception("Unexpected error handling mention")
         repo_safe(lambda: repo.delete(thread_key))
