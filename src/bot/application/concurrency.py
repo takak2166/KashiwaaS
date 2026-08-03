@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
@@ -12,6 +13,7 @@ from dataclasses import dataclass, field
 class _LockEntry:
     lock: threading.Lock
     last_used_at: float = field(default_factory=time.time)
+    holders: int = 0
 
 
 class ThreadLockRegistry:
@@ -23,16 +25,17 @@ class ThreadLockRegistry:
         self._guard = threading.Lock()
 
     def _evict_unlocked(self, now: float) -> None:
+        # Evict only entries with no holders (avoids TOCTOU with Lock.locked()).
         expired = [
             key
             for key, entry in self._locks.items()
-            if now - entry.last_used_at > self._ttl_seconds and not entry.lock.locked()
+            if now - entry.last_used_at > self._ttl_seconds and entry.holders == 0
         ]
         for key in expired:
             del self._locks[key]
 
     @contextmanager
-    def lock(self, key: str):
+    def lock(self, key: str) -> Iterator[None]:
         with self._guard:
             now = time.time()
             self._evict_unlocked(now)
@@ -40,6 +43,7 @@ class ThreadLockRegistry:
             if entry is None:
                 entry = _LockEntry(lock=threading.Lock(), last_used_at=now)
                 self._locks[key] = entry
+            entry.holders += 1
             entry.last_used_at = now
             lk = entry.lock
         lk.acquire()
@@ -50,6 +54,7 @@ class ThreadLockRegistry:
                 ent = self._locks.get(key)
                 if ent is not None:
                     ent.last_used_at = time.time()
+                    ent.holders = max(0, ent.holders - 1)
             lk.release()
 
 
