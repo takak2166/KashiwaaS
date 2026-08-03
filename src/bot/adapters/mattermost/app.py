@@ -156,11 +156,11 @@ def handle_mattermost_mention(
     mention = bot_mention_from_posted_event(ev, bot_user_id=bot_user_id, bot_username=bot_username)
 
     logger.debug(
-        "mattermost mention: channel={} root={} post={} text={!r}",
+        "mattermost mention: channel={} root={} post={} text_len={}",
         ev.channel_id,
         ev.root_post_id,
         ev.event_post_id,
-        mention.raw_text,
+        len(mention.raw_text),
     )
 
     def on_empty_question() -> None:
@@ -243,9 +243,9 @@ def build_websocket_handler(
     """Return async handler for mattermostdriver websocket."""
 
     async def on_message(message: str) -> None:
-        # Debug only: MATTERMOST_LOG_RAW_WEBSOCKET dumps WebSocket payloads (may include tokens or message bodies).
+        # Opt-in diagnostics: never dump message bodies (may include tokens / PII).
         if mm_cfg.log_raw_websocket:
-            logger.debug("mattermost websocket raw: {}", message[:4000])
+            logger.info("mattermost websocket frame received (len={})", len(message))
         try:
             payload = json.loads(message)
         except json.JSONDecodeError:
@@ -285,6 +285,10 @@ def create_mattermost_stack(
     cfg: AppConfig,
 ) -> tuple[MattermostConfig, Driver, CursorClient, ValkeyThreadConversationRepository, MattermostBotClient, str]:
     mm_cfg = _require_mattermost_bot_config(cfg)
+    if not mm_cfg.verify_tls:
+        logger.warning(
+            "MATTERMOST_VERIFY_TLS is disabled; TLS certificate verification is off for REST and WebSocket"
+        )
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
     mm_cfg = _resolve_mattermost_bot_user_id(mm_cfg, driver)

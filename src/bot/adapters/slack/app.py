@@ -61,7 +61,9 @@ def create_app(cfg: AppConfig) -> App:
 
     @app.event("message")
     def handle_message_events(body, logger):
-        logger.debug(body)
+        event = body.get("event") if isinstance(body, dict) else None
+        etype = event.get("type") if isinstance(event, dict) else None
+        logger.debug("slack message event type={}", etype)
 
     return app
 
@@ -110,7 +112,7 @@ def _handle_mention(
     thread_ts = mention.thread_key
 
     logger.debug(
-        f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text={mention.raw_text!r}"
+        f"app_mention received: channel={channel}, ts={event_ts}, thread_ts={thread_ts}, text_len={len(mention.raw_text)}"
     )
 
     def on_empty_question() -> None:

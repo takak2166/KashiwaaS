@@ -88,7 +88,7 @@ def run_cursor_reply(
             )
         else:
             op = "ask"
-            logger.info("New question in thread {}: {}...", thread_key, question[:80])
+            logger.info("New question in thread {} (len={})", thread_key, len(question))
             result = cursor.ask(
                 question,
                 expected_previous_message_id=expected_previous_message_id,
