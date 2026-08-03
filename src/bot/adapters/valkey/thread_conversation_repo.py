@@ -41,10 +41,12 @@ class ValkeyThreadConversationRepository:
     def get(self, thread_key: str) -> ThreadConversation:
         key = self._key(thread_key)
         agent_id, last_mid, last_fp = self._client.hmget(key, [_F_AGENT_ID, _F_LAST_MESSAGE_ID, _F_LAST_FINGERPRINT])
-        if not agent_id:
+        if agent_id is None or agent_id == "":
             return ThreadConversation.empty(thread_key)
         self._refresh_ttl(key)
-        return ThreadConversation(thread_key, agent_id, last_mid, last_fp)
+        last_message_id = None if last_mid is None or last_mid == "" else last_mid
+        last_fingerprint = None if last_fp is None or last_fp == "" else last_fp
+        return ThreadConversation(thread_key, agent_id, last_message_id, last_fingerprint)
 
     def save(self, convo: ThreadConversation) -> None:
         key = self._key(convo.thread_key)

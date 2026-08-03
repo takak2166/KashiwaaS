@@ -36,6 +36,12 @@ class TestValkeyThreadConversationRepository:
         repo = _repo_for_test()
         assert repo.get("nonexistent") == ThreadConversation.empty("nonexistent")
 
+    def test_get_empty_string_agent_id_treated_as_missing(self) -> None:
+        repo = _repo_for_test()
+        key = repo._key("thread_1")  # noqa: SLF001
+        repo._client.hset(key, mapping={"agent_id": "", "last_message_id": "m1"})  # noqa: SLF001
+        assert repo.get("thread_1") == ThreadConversation.empty("thread_1")
+
     def test_delete(self) -> None:
         repo = _repo_for_test()
         repo.save(ThreadConversation("thread_1", "agent_1", None, None))

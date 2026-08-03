@@ -23,8 +23,8 @@ def is_duplicate_assistant_reply(
     assistant_text_fingerprint: str,
 ) -> bool:
     """Whether the assistant message matches the last one we already posted (id or content)."""
-    if last_sent_message_id and assistant_message_id == last_sent_message_id:
+    if last_sent_message_id is not None and assistant_message_id == last_sent_message_id:
         return True
-    if last_sent_fingerprint and assistant_text_fingerprint == last_sent_fingerprint:
+    if last_sent_fingerprint is not None and assistant_text_fingerprint == last_sent_fingerprint:
         return True
     return False
