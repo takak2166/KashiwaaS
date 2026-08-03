@@ -59,5 +59,6 @@ ignore = ["E203"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"src/bot/kashiwaas.py" = ["F401"]
 "scripts/*.py" = ["E402"]
 "src/analysis/visualization.py" = ["E402"]

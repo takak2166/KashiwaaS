@@ -1,6 +1,4 @@
-"""
-Chat mention helpers for Slack ``app_mention`` and Mattermost ``posted`` events (no I/O).
-"""
+"""Parse Mattermost ``posted`` WebSocket data into domain ``BotMention`` (no I/O)."""
 
 from __future__ import annotations
 
@@ -8,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 
-MENTION_PATTERN = re.compile(r"<@[\w]+>")
+from src.bot.domain.mention import BotMention
 
 
 def mattermost_bot_mention_pattern(bot_user_id: str) -> re.Pattern[str]:
@@ -26,16 +24,6 @@ def mattermost_bot_mention_strip_patterns(
     if u and u != bot_user_id:
         pats.append(re.compile(rf"@({re.escape(u)})\b"))
     return tuple(pats)
-
-
-@dataclass(frozen=True)
-class SlackMentionEvent:
-    """Normalized fields from a Slack ``app_mention`` payload."""
-
-    channel: str
-    event_ts: str
-    thread_ts: str
-    raw_text: str
 
 
 @dataclass(frozen=True)
@@ -78,7 +66,7 @@ def mattermost_broadcast_mentions_bot(data: dict, bot_user_id: str) -> bool:
 
 
 def mattermost_is_direct_message_channel(data: dict) -> bool:
-    """Whether ``posted`` event ``data`` is a 1:1 DM channel (no ``@userid`` in body, but addressed to the bot)."""
+    """Whether ``posted`` event ``data`` is a 1:1 DM channel."""
     return str(data.get("channel_type") or "").upper() == "D"
 
 
@@ -168,22 +156,6 @@ def mattermost_posted_event_from_broadcast(
     )
 
 
-def slack_mention_event_from_dict(event: dict) -> SlackMentionEvent:
-    """Extract stable fields from Bolt ``event`` dict."""
-    event_ts = event.get("ts", "")
-    return SlackMentionEvent(
-        channel=event.get("channel", ""),
-        event_ts=event_ts,
-        thread_ts=event.get("thread_ts") or event_ts,
-        raw_text=event.get("text", ""),
-    )
-
-
-def extract_question(text: str) -> str:
-    """Remove mention tags and extract the user question text."""
-    return MENTION_PATTERN.sub("", text).strip()
-
-
 def extract_question_mattermost(
     text: str,
     bot_user_id: str,
@@ -196,16 +168,16 @@ def extract_question_mattermost(
     return out.strip()
 
 
-def is_duplicate_assistant_reply(
+def bot_mention_from_posted_event(
+    ev: MattermostPostedEvent,
     *,
-    last_sent_message_id: str | None,
-    last_sent_fingerprint: str | None,
-    assistant_message_id: str,
-    assistant_text_fingerprint: str,
-) -> bool:
-    """Whether the assistant message matches the last one we already posted (id or content)."""
-    if last_sent_message_id and assistant_message_id == last_sent_message_id:
-        return True
-    if last_sent_fingerprint and assistant_text_fingerprint == last_sent_fingerprint:
-        return True
-    return False
+    bot_user_id: str,
+    bot_username: str = "",
+) -> BotMention:
+    """Build a platform-neutral ``BotMention`` from a normalized Mattermost post."""
+    return BotMention(
+        thread_key=f"{ev.channel_id}:{ev.root_post_id}",
+        event_key=(ev.channel_id, ev.event_post_id),
+        raw_text=ev.raw_text,
+        question=extract_question_mattermost(ev.raw_text, bot_user_id, bot_username=bot_username),
+    )
