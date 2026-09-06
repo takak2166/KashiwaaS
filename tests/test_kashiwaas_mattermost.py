@@ -18,7 +18,7 @@ from src.bot.adapters.mattermost.mention_parser import (
 from src.bot.application.concurrency import ProcessedEventCache, ThreadLockRegistry
 from src.bot.application.mention_service import MentionHandlerService
 from src.bot.domain.conversation import ThreadConversation
-from src.cursor.client import AgentMessage, AgentResult, AgentStatus
+from src.cursor.client import AgentResult, RunStatus
 from src.utils.config import ConfigError, MattermostConfig
 
 
@@ -245,10 +245,10 @@ def test_handle_mattermost_mention_runs_cursor(mock_thread_class) -> None:
     cursor = MagicMock()
     cursor.ask.return_value = AgentResult(
         agent_id="a1",
-        status=AgentStatus.FINISHED,
-        messages=[AgentMessage(id="m1", type="assistant_message", text="Python is a language.")],
+        run_id="run1",
+        status=RunStatus.FINISHED,
+        result_text="Python is a language.",
     )
-    cursor.get_latest_assistant_message_obj.side_effect = lambda msgs: msgs[-1] if msgs else None
     store = MagicMock()
     store.get.return_value = ThreadConversation.empty("ch1:root1")
 

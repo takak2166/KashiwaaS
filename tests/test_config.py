@@ -212,6 +212,31 @@ def test_load_config_mattermost_http_public_or_non_rfc1918_raises(mm_url: str) -
         )
 
 
+def test_load_config_cursor_env_machine_requires_name() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_ENV_NAME is required"):
+        load_config({"CURSOR_ENV_TYPE": "machine"})
+
+
+def test_load_config_cursor_env_production_defaults() -> None:
+    cfg = load_config(
+        {
+            "CURSOR_ENV_TYPE": "machine",
+            "CURSOR_ENV_NAME": "cursor-agent-worker-676f7f7b4d",
+            "CURSOR_LAUNCH_MODE": "env_only",
+            "CURSOR_AUTO_CREATE_PR": "false",
+        }
+    )
+    assert cfg.cursor.env_type == "machine"
+    assert cfg.cursor.env_name == "cursor-agent-worker-676f7f7b4d"
+    assert cfg.cursor.launch_mode == "env_only"
+    assert cfg.cursor.auto_create_pr is False
+
+
+def test_load_config_cursor_launch_mode_invalid_raises() -> None:
+    with pytest.raises(ConfigError, match="CURSOR_LAUNCH_MODE"):
+        load_config({"CURSOR_LAUNCH_MODE": "invalid"})
+
+
 def test_load_config_mattermost_https_default_port() -> None:
     cfg = load_config(
         {

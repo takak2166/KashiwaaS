@@ -70,16 +70,21 @@ class KibanaConfig:
 
 @dataclass(frozen=True)
 class CursorConfig:
-    """Cursor Cloud Agents API configuration."""
+    """Cursor Cloud Agents API v1 configuration."""
 
     api_key: Optional[str] = None
+    env_type: Optional[str] = None
+    env_name: Optional[str] = None
+    launch_mode: str = "repo"
     source_repository: str = "https://github.com/takak2166/KashiwaaS"
     source_ref: str = "main"
+    auto_create_pr: bool = False
     poll_interval: int = 5
     poll_timeout: int = DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS
     model: Optional[str] = "composer-2"
     conversation_retry_max_retries: int = 4
     conversation_retry_delay_seconds: float = 1.5
+    # Legacy fields kept for config load compatibility (unused by v1 client)
     conversation_text_stabilize_interval_seconds: float = 1.0
     conversation_text_stabilize_required_matches: int = 3
     conversation_text_stabilize_max_rounds: int = 60
@@ -227,6 +232,22 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     if conv_stab_max < 1:
         raise ConfigError("CURSOR_CONVERSATION_TEXT_STABILIZE_MAX_ROUNDS must be >= 1")
 
+    cursor_env_type = _get_str(e, "CURSOR_ENV_TYPE")
+    cursor_env_name = _get_str(e, "CURSOR_ENV_NAME")
+    cursor_launch_mode = (_get_str(e, "CURSOR_LAUNCH_MODE", "repo") or "repo").lower()
+    if cursor_launch_mode not in ("repo", "env_only"):
+        raise ConfigError("CURSOR_LAUNCH_MODE must be 'repo' or 'env_only'")
+    auto_create_pr_raw = (_get_str(e, "CURSOR_AUTO_CREATE_PR", "false") or "false").lower()
+    auto_create_pr = auto_create_pr_raw in ("1", "true", "yes", "on")
+    if cursor_env_type:
+        normalized_type = cursor_env_type.lower()
+        if normalized_type not in ("machine", "pool", "cloud"):
+            raise ConfigError("CURSOR_ENV_TYPE must be machine, pool, or cloud")
+        if normalized_type in ("machine", "pool") and not cursor_env_name:
+            raise ConfigError(f"CURSOR_ENV_NAME is required when CURSOR_ENV_TYPE={normalized_type}")
+        if normalized_type == "cloud" and cursor_env_name is None:
+            pass  # unnamed cloud env is valid
+
     valkey_url = _get_str(e, "VALKEY_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0"
     valkey_ttl = _get_int(e, "VALKEY_THREAD_TTL_SECONDS", DEFAULT_VALKEY_THREAD_TTL_SECONDS)
     if valkey_ttl < 0:
@@ -306,9 +327,13 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
         ),
         cursor=CursorConfig(
             api_key=_get_str(e, "CURSOR_API_KEY"),
+            env_type=cursor_env_type.lower() if cursor_env_type else None,
+            env_name=cursor_env_name,
+            launch_mode=cursor_launch_mode,
             source_repository=_get_str(e, "CURSOR_SOURCE_REPOSITORY", "https://github.com/takak2166/KashiwaaS")
             or "https://github.com/takak2166/KashiwaaS",
             source_ref=_get_str(e, "CURSOR_SOURCE_REF", "main") or "main",
+            auto_create_pr=auto_create_pr,
             poll_interval=_get_int(e, "CURSOR_POLL_INTERVAL", 5),
             poll_timeout=_get_int(e, "CURSOR_POLL_TIMEOUT", DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS),
             model=_get_str(e, "CURSOR_MODEL", "composer-2"),
