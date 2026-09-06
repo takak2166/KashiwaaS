@@ -217,17 +217,17 @@ def test_load_config_cursor_env_machine_requires_name() -> None:
         load_config({"CURSOR_ENV_TYPE": "machine"})
 
 
-def test_load_config_cursor_env_production_defaults() -> None:
+def test_load_config_cursor_env_machine_defaults() -> None:
     cfg = load_config(
         {
             "CURSOR_ENV_TYPE": "machine",
-            "CURSOR_ENV_NAME": "cursor-agent-worker-676f7f7b4d",
+            "CURSOR_ENV_NAME": "your-machine-env-name",
             "CURSOR_LAUNCH_MODE": "env_only",
             "CURSOR_AUTO_CREATE_PR": "false",
         }
     )
     assert cfg.cursor.env_type == "machine"
-    assert cfg.cursor.env_name == "cursor-agent-worker-676f7f7b4d"
+    assert cfg.cursor.env_name == "your-machine-env-name"
     assert cfg.cursor.launch_mode == "env_only"
     assert cfg.cursor.auto_create_pr is False
 
