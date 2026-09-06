@@ -16,7 +16,7 @@ from valkey.exceptions import ValkeyError
 from src.bot.application.chat_adapter import ChatAdapter
 from src.bot.application.processing_state import ProcessingState
 from src.bot.domain.repository import ThreadConversationRepository
-from src.cursor.client import AgentStatus, CursorAPIError, CursorClient, CursorTimeoutError
+from src.cursor.client import FAILURE_STATUSES, CursorAPIError, CursorClient, CursorTimeoutError, RunStatus
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -76,14 +76,14 @@ def run_cursor_reply(
     try:
         convo = repo.get(thread_key)
         agent_id = convo.agent_id
-        expected_previous_message_id = convo.last_message_id
+        expected_previous_run_id = convo.last_message_id
         if agent_id:
             op = "followup"
             logger.info("Followup in thread {} -> agent {}", thread_key, agent_id)
             result = cursor.followup(
                 agent_id,
                 question,
-                expected_previous_message_id=expected_previous_message_id,
+                expected_previous_run_id=expected_previous_run_id,
                 on_poll=on_poll,
             )
         else:
@@ -91,17 +91,18 @@ def run_cursor_reply(
             logger.info("New question in thread {} (len={})", thread_key, len(question))
             result = cursor.ask(
                 question,
-                expected_previous_message_id=expected_previous_message_id,
+                expected_previous_run_id=expected_previous_run_id,
                 on_poll=on_poll,
             )
 
-        if result.status in (AgentStatus.ERROR, AgentStatus.STOPPED):
+        if result.status in FAILURE_STATUSES:
             logger.warning(
-                "Cursor agent ended with status={} op={} thread={} agent={}",
+                "Cursor run ended with status={} op={} thread={} agent={} run={}",
                 result.status,
                 op,
                 thread_key,
                 result.agent_id,
+                result.run_id,
             )
             _fail_after_clear(
                 repo=repo,
@@ -111,13 +112,14 @@ def run_cursor_reply(
             )
             return
 
-        latest_msg = cursor.get_latest_assistant_message_obj(result.messages)
-        if not latest_msg:
+        if result.status != RunStatus.FINISHED or not result.result_text:
             logger.warning(
-                "No assistant message in Cursor result op={} thread={} agent={}",
+                "No assistant result in Cursor response op={} thread={} agent={} run={} status={}",
                 op,
                 thread_key,
                 result.agent_id,
+                result.run_id,
+                result.status,
             )
             _fail_after_clear(
                 repo=repo,
@@ -127,51 +129,52 @@ def run_cursor_reply(
             )
             return
 
-        current_fingerprint = fingerprint_text(latest_msg.text)
+        run_id = result.run_id
+        reply_text = result.result_text
+        current_fingerprint = fingerprint_text(reply_text)
 
         def _dup() -> bool:
-            return convo.is_duplicate(message_id=latest_msg.id, fingerprint=current_fingerprint)
+            return convo.is_duplicate(message_id=run_id, fingerprint=current_fingerprint)
 
         if _dup():
             max_retries = cursor.conversation_retry_max_retries
             for attempt in range(max_retries):
                 logger.info(
-                    "Duplicate assistant message detected; retrying conversation fetch "
-                    "(attempt={}/{}, thread={}, msg_id={})",
+                    "Duplicate assistant run detected; retrying run fetch (attempt={}/{}, thread={}, run_id={})",
                     attempt + 1,
                     max_retries,
                     thread_key,
-                    latest_msg.id,
+                    run_id,
                 )
-                refreshed = cursor.get_conversation_after_complete(
+                refreshed = cursor.get_run_after_complete(
                     result.agent_id,
-                    expected_previous_message_id=latest_msg.id,
+                    run_id,
+                    expected_previous_run_id=run_id,
                 )
-                latest = cursor.get_latest_assistant_message_obj(refreshed)
-                if not latest:
-                    break
-                latest_msg = latest
-                current_fingerprint = fingerprint_text(latest_msg.text)
+                if refreshed.result_text:
+                    reply_text = refreshed.result_text
+                    run_id = refreshed.run_id
+                    current_fingerprint = fingerprint_text(reply_text)
                 if not _dup():
                     break
 
             if _dup():
                 logger.warning(
-                    "Duplicate assistant reply exhausted retries op={} thread={} agent={} msg_id={}",
+                    "Duplicate assistant reply exhausted retries op={} thread={} agent={} run_id={}",
                     op,
                     thread_key,
                     result.agent_id,
-                    latest_msg.id,
+                    run_id,
                 )
                 adapter.react(ProcessingState.FAILED)
                 adapter.post_plain("The same response content keeps repeating. Please wait a moment and try again.")
                 return
 
-        logger.info("Sending assistant message: thread={}, msg_id={}", thread_key, latest_msg.id)
-        convo = convo.with_agent(result.agent_id).with_last_reply(latest_msg.id, current_fingerprint)
+        logger.info("Sending assistant message: thread={}, run_id={}", thread_key, run_id)
+        convo = convo.with_agent(result.agent_id).with_last_reply(run_id, current_fingerprint)
         repo.save(convo)
 
-        adapter.post_assistant(latest_msg.text)
+        adapter.post_assistant(reply_text)
 
         adapter.react(ProcessingState.SUCCESS)
 
