@@ -28,6 +28,7 @@ poll_run() {
 
 echo "== Phase 1: POST /v1/agents (env_only) =="
 CREATE=$(curl -sf -u "$CURSOR_API_KEY:" -H 'Content-Type: application/json' \
+  "$API/v1/agents" \
   -d "{\"prompt\":{\"text\":\"Reply with exactly: E2E_OK\"},\"env\":{\"type\":\"$ENV_TYPE\",\"name\":\"$CURSOR_ENV_NAME\"},\"autoCreatePR\":false}")
 AGENT_ID=$(echo "$CREATE" | jq -r '.agent.id')
 RUN_ID=$(echo "$CREATE" | jq -r '.run.id')
