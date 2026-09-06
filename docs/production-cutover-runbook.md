@@ -44,16 +44,19 @@ Rollback if: Phase 1 fails after cutover, Worker unavailable >15 min, or error r
    ```bash
    sudo systemctl stop kashiwaas-bot
    ```
-2. **Restore previous `.env`** from backup (pre-cutover snapshot). If no v0 backup exists, set:
+2. **Restore previous `.env`** from backup (pre-cutover snapshot). Edit the file to remove machine routing:
    ```bash
-   # Unset machine routing — cloud repo mode (legacy)
-   unset CURSOR_ENV_TYPE CURSOR_ENV_NAME
+   # Remove or comment out:
+   # CURSOR_ENV_TYPE=machine
+   # CURSOR_ENV_NAME=...
+   # Set legacy repo mode if rolling back to an older release:
    CURSOR_LAUNCH_MODE=repo
    ```
    Note: v0 API was removed in TAK-134; rollback to cloud requires checking out a pre-migration release tag if still needed.
 3. **Clear Valkey thread keys** (optional, if stale agent ids cause confusion):
    ```bash
-   redis-cli -u "$VALKEY_URL" KEYS 'slack:*' | xargs -r redis-cli -u "$VALKEY_URL" DEL
+   docker compose exec -T valkey valkey-cli --scan --pattern 'kashiwaas:thread:*' | \
+     xargs -r docker compose exec -T valkey valkey-cli DEL
    ```
 4. **Restart Bot** on rollback config and post in Slack that mentions may need fresh threads.
 
