@@ -11,6 +11,7 @@ The former single long `design.md` is split by topic. The source of truth for be
 | [operations.md](operations.md) | Deployment, operations, scaling |
 | [bot.md](bot.md) | KashiwaaS Bot (`@kashiwaas`) and Cursor API integration (summary) |
 | [private-worker.md](private-worker.md) | My Machines worker names, launch policy, display name ↔ API `env.name` |
+| [cursor-secrets.md](cursor-secrets.md) | Cursor API key type, host secret placement, 403 triage |
 | [stacked-pr-workflow.md](stacked-pr-workflow.md) | Stacked PR boundaries for large bot refactors (agent discipline) |
 | [e2e.md](e2e.md) | Minimal E2E with the stack up (Compose / CI dry-run) |
 
