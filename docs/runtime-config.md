@@ -18,9 +18,11 @@
   ELASTICSEARCH_HOST=http://elasticsearch:9200
   ELASTICSEARCH_USER=elastic
   ELASTICSEARCH_PASSWORD=changeme
+  CURSOR_API_KEY=key_your-user-api-key
   ```
 - Add `.env` to `.gitignore`
 - In production, prefer Docker secrets or Kubernetes secrets
+- Cursor Bot secrets (user API key, Slack tokens, Valkey URL): see [cursor-secrets.md](cursor-secrets.md)
 
 ### Access control
 
