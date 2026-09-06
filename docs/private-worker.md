@@ -36,7 +36,7 @@ curl -u "$CURSOR_API_KEY:" \
   "https://api.cursor.com/v1/agents?limit=5"
 ```
 
-### Primary (KashiwaaS production target)
+### Example worker record
 
 Example shape after resolving via curl (do **not** commit live values):
 
@@ -50,13 +50,6 @@ cursor_env:
   repos: []                                                # no-repo worker
   machine: ubuntu24
 ```
-
-### Other connected workers (not production)
-
-| Display name | API `env.name` | Repos | Note |
-|--------------|----------------|-------|------|
-| `~/quoridor @ ubuntu24` | `cursor-agent-worker-b57646a2d0` | `takak2166/quoridor` | Different project |
-| `~/ghq/github.com/takak2166/KashiwaaS @ LAPTOP-L6L2UE39` | `cursor-agent-worker-f2d0ff614f` | `takak2166/KashiwaaS` | WSL laptop; not ubuntu24 prod |
 
 ### Display name vs API `env.name`
 
