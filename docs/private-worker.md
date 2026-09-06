@@ -59,6 +59,34 @@ cursor_env:
 
 The Bot and API payloads **must** use the internal `name` label. The display name is for humans and the Cursor dashboard only.
 
+## Worker lifecycle (TAK-133)
+
+### Restart policy
+
+ubuntu24 Worker is connected via **Cursor Remote Control** (IDE / CLI outbound connection). We do **not** run a separate systemd unit for the Worker process in this phase.
+
+| Event | Expected behavior |
+|-------|-------------------|
+| Cursor IDE / Remote session active | Worker shows **connected** in `GET /v0/private-workers` |
+| OS reboot | Reconnect Cursor Remote on ubuntu24 (same flow as initial setup) |
+| Worker disconnected | Open Cursor on ubuntu24 → verify machine appears under My Machines → reconnect |
+
+**Decision:** Use **Cursor Remote reconnect** after reboot rather than standalone `agent worker start` systemd, until unattended worker startup is required.
+
+### Health check (after reboot or incident)
+
+```bash
+# 1. Worker connected?
+curl -u "$CURSOR_API_KEY:" \
+  "https://api.cursor.com/v0/private-workers?status=all&limit=50" \
+  | jq '.workers[] | select(.labels[]? | select(.key=="name" and .value=="cursor-agent-worker-676f7f7b4d"))'
+
+# 2. Optional: list recent agents on this machine
+curl -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=5"
+```
+
+Pass criteria: primary worker row present, status connected, `repos` empty (no-repo).
+
 ## Related docs
 
 - [cursor-secrets.md](cursor-secrets.md) — API key type, host placement, 403 triage
