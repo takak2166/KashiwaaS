@@ -5,8 +5,10 @@ from src.utils.config import AppConfig
 
 
 def build_cursor_client(cfg: AppConfig) -> CursorClient:
+    if not cfg.cursor.api_key:
+        raise ValueError("CURSOR_API_KEY is required for Cursor client")
     return CursorClient(
-        api_key=cfg.cursor.api_key or "",
+        api_key=cfg.cursor.api_key,
         env_type=cfg.cursor.env_type,
         env_name=cfg.cursor.env_name,
         launch_mode=cfg.cursor.launch_mode,
