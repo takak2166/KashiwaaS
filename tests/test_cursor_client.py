@@ -55,6 +55,27 @@ class TestCursorClient:
         assert payload["autoCreatePR"] is False
 
     @patch("src.cursor.client.requests.request")
+    def test_create_agent_machine_repo_mode(self, mock_request):
+        client = CursorClient(
+            api_key="k",
+            env_type="machine",
+            env_name="cursor-agent-worker-test",
+            launch_mode="repo",
+            source_repository="https://github.com/t/r",
+        )
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b'{"agent":{"id":"x"},"run":{"id":"r1"}}'
+        mock_response.json.return_value = {"agent": {"id": "x"}, "run": {"id": "r1"}}
+        mock_request.return_value = mock_response
+
+        client.create_agent("q")
+        payload = mock_request.call_args[1]["json"]
+        assert payload["env"] == {"type": "machine", "name": "cursor-agent-worker-test"}
+        assert payload["repos"] == [{"url": "https://github.com/t/r", "startingRef": "main"}]
+
+    @patch("src.cursor.client.requests.request")
     def test_create_agent_repo_mode(self, mock_request):
         client = CursorClient(
             api_key="k",

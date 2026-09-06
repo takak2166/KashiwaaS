@@ -203,32 +203,26 @@ class TestRunCursorReplyFollowupPath:
         assert adapter.posts_assistant == ["More"]
 
 
-class TestRunCursorReplyDuplicateRetry:
-    def test_retries_then_posts_when_refresh_differs(self) -> None:
+class TestRunCursorReplyStaleRunId:
+    def test_same_run_id_as_stored_posts_failure(self) -> None:
         repo = _repo()
         repo.save(
             ThreadConversation(
                 "t1",
                 "ag1",
-                "old_msg",
-                fingerprint_text("duplicate body"),
+                "same_run",
+                fingerprint_text("old body"),
             )
         )
 
         adapter = _adapter()
-        cursor = _client(conversation_retry_max_retries=4)
+        cursor = _client()
         cursor.followup.return_value = AgentResult(
             agent_id="ag1",
-            run_id="same_id",
+            run_id="same_run",
             status=RunStatus.FINISHED,
             result_text="duplicate body",
         )
-        cursor.get_run_after_complete.return_value = AgentResult(
-            agent_id="ag1",
-            run_id="new",
-            status=RunStatus.FINISHED,
-            result_text="fresh body",
-        )
 
         run_cursor_reply(
             thread_key="t1",
@@ -239,39 +233,7 @@ class TestRunCursorReplyDuplicateRetry:
             on_poll=None,
         )
 
-        cursor.get_run_after_complete.assert_called()
-        assert adapter.posts_assistant == ["fresh body"]
-        assert ProcessingState.SUCCESS in adapter.reacts
-
-    def test_duplicate_after_max_retries_posts_repeat_message(self) -> None:
-        repo = _repo()
-        repo.save(ThreadConversation("t1", "ag1", "same", None))
-
-        adapter = _adapter()
-        cursor = _client(conversation_retry_max_retries=2)
-        cursor.followup.return_value = AgentResult(
-            agent_id="ag1",
-            run_id="same",
-            status=RunStatus.FINISHED,
-            result_text="x",
-        )
-        cursor.get_run_after_complete.return_value = AgentResult(
-            agent_id="ag1",
-            run_id="same",
-            status=RunStatus.FINISHED,
-            result_text="x",
-        )
-
-        run_cursor_reply(
-            thread_key="t1",
-            question="Q?",
-            repo=repo,
-            cursor=cursor,
-            adapter=adapter,
-            on_poll=None,
-        )
-
-        assert "repeating" in adapter.posts_plain[0].lower()
+        assert "Failed to retrieve a new response" in adapter.posts_plain[0]
         assert adapter.posts_assistant == []
         assert ProcessingState.FAILED in adapter.reacts
 

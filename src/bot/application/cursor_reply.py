@@ -133,42 +133,17 @@ def run_cursor_reply(
         reply_text = result.result_text
         current_fingerprint = fingerprint_text(reply_text)
 
-        def _dup() -> bool:
-            return convo.is_duplicate(message_id=run_id, fingerprint=current_fingerprint)
-
-        if _dup():
-            max_retries = cursor.conversation_retry_max_retries
-            for attempt in range(max_retries):
-                logger.info(
-                    "Duplicate assistant run detected; retrying run fetch (attempt={}/{}, thread={}, run_id={})",
-                    attempt + 1,
-                    max_retries,
-                    thread_key,
-                    run_id,
-                )
-                refreshed = cursor.get_run_after_complete(
-                    result.agent_id,
-                    run_id,
-                    expected_previous_run_id=run_id,
-                )
-                if refreshed.result_text:
-                    reply_text = refreshed.result_text
-                    run_id = refreshed.run_id
-                    current_fingerprint = fingerprint_text(reply_text)
-                if not _dup():
-                    break
-
-            if _dup():
-                logger.warning(
-                    "Duplicate assistant reply exhausted retries op={} thread={} agent={} run_id={}",
-                    op,
-                    thread_key,
-                    result.agent_id,
-                    run_id,
-                )
-                adapter.react(ProcessingState.FAILED)
-                adapter.post_plain("The same response content keeps repeating. Please wait a moment and try again.")
-                return
+        if convo.last_message_id is not None and convo.last_message_id == run_id:
+            logger.warning(
+                "Stale run id returned op={} thread={} agent={} run_id={}",
+                op,
+                thread_key,
+                result.agent_id,
+                run_id,
+            )
+            adapter.react(ProcessingState.FAILED)
+            adapter.post_plain("Failed to retrieve a new response. Please try again.")
+            return
 
         logger.info("Sending assistant message: thread={}, run_id={}", thread_key, run_id)
         convo = convo.with_agent(result.agent_id).with_last_reply(run_id, current_fingerprint)
