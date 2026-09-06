@@ -15,7 +15,7 @@ KashiwaaS Bot launches Cursor Cloud Agents on a **self-hosted machine** (Remote 
 
 - **Adopt `machine`:** Single ubuntu24 VM already runs Remote Control; matches KashiwaaS ops (same host as Bot target).
 - **Do not use `pool`:** No team pool worker is provisioned; Service Account keys are unnecessary for `machine`.
-- **Do not use `cloud`:** Cursor-hosted VMs are the legacy path being replaced (TAK-137 production cutover runbook).
+- **Do not use `cloud`:** Cursor-hosted VMs are the legacy path being replaced (see [production-cutover-runbook.md](production-cutover-runbook.md)).
 
 ## Resolve worker names (required before cutover)
 
@@ -94,7 +94,12 @@ Pass criteria: primary worker row present, status connected, `repos` empty (no-r
 - [cursor-secrets.md](cursor-secrets.md) — API key type, host placement, 403 triage
 - [runtime-config.md](runtime-config.md) — environment variables
 - [bot.md](bot.md) — Slack Bot operation
+<<<<<<< HEAD
 - [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E
+=======
+- [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E (TAK-136)
+- [production-cutover-runbook.md](production-cutover-runbook.md) — cutover / rollback (TAK-137)
+>>>>>>> f5668c7 (fix(TAK-137): clarify rollback constraints and v0 wording)
 
 ## References
 
