@@ -94,6 +94,7 @@ Pass criteria: primary worker row present, status connected, `repos` empty (no-r
 - [cursor-secrets.md](cursor-secrets.md) — API key type, host placement, 403 triage
 - [runtime-config.md](runtime-config.md) — environment variables
 - [bot.md](bot.md) — Slack Bot operation
+- [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E (TAK-136)
 
 ## References
 
