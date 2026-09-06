@@ -30,7 +30,7 @@ sudo systemctl stop kashiwaas-bot
 
 ## Valkey
 
-The `valkey` Compose service publishes `6379` on localhost. The Bot unit sets `VALKEY_URL=redis://127.0.0.1:6379/0` so a host-run Bot reaches the container.
+The `valkey` Compose service binds **`127.0.0.1:6379`** only (not all interfaces). The Bot unit sets `VALKEY_URL=redis://127.0.0.1:6379/0` so a host-run Bot reaches the container.
 
 ## Replica count
 
