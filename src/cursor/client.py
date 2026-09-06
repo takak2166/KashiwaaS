@@ -196,15 +196,18 @@ class CursorClient:
         logger.info("Sent followup run {} to agent {}: {}...", run_id, agent_id, prompt[:80])
         return run_id
 
-    def get_run_status(self, agent_id: str, run_id: str) -> RunStatus:
-        """GET /v1/agents/{id}/runs/{runId} — run status only."""
-        data = self._request("GET", f"/v1/agents/{agent_id}/runs/{run_id}")
+    def _run_status_from_data(self, data: Dict[str, Any]) -> RunStatus:
         raw_status = data.get("status", "ERROR")
         try:
             return RunStatus(raw_status)
         except ValueError:
             logger.warning("Unknown run status: {}", raw_status)
             return RunStatus.ERROR
+
+    def get_run_status(self, agent_id: str, run_id: str) -> RunStatus:
+        """GET /v1/agents/{id}/runs/{runId} — run status only."""
+        data = self._request("GET", f"/v1/agents/{agent_id}/runs/{run_id}")
+        return self._run_status_from_data(data)
 
     def get_run(self, agent_id: str, run_id: str) -> Dict[str, Any]:
         """GET /v1/agents/{id}/runs/{runId} — full run record."""
@@ -267,12 +270,12 @@ class CursorClient:
         delay_seconds = delay_seconds if delay_seconds is not None else self.conversation_retry_delay_seconds
         if max_retries < 1:
             data = self.get_run(agent_id, run_id)
-            status = RunStatus(data.get("status", "ERROR"))
+            status = self._run_status_from_data(data)
             return self._result_from_run(agent_id, run_id, status)
 
         for attempt in range(max_retries):
             data = self.get_run(agent_id, run_id)
-            status = RunStatus(data.get("status", "ERROR"))
+            status = self._run_status_from_data(data)
             current_run_id = data.get("id", run_id)
             if expected_previous_run_id is None or current_run_id != expected_previous_run_id:
                 return self._result_from_run(agent_id, current_run_id, status)
@@ -280,7 +283,7 @@ class CursorClient:
                 time.sleep(delay_seconds * (2**attempt))
 
         data = self.get_run(agent_id, run_id)
-        status = RunStatus(data.get("status", "ERROR"))
+        status = self._run_status_from_data(data)
         return self._result_from_run(agent_id, data.get("id", run_id), status)
 
     def ask(
