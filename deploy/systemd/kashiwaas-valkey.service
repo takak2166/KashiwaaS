@@ -1,0 +1,16 @@
+[Unit]
+Description=Valkey for KashiwaaS Bot (Docker Compose)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/ubuntu/ghq/github.com/takak2166/KashiwaaS
+ExecStart=/usr/bin/docker compose up -d --wait valkey
+ExecStop=/usr/bin/docker compose stop valkey
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

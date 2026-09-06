@@ -1,0 +1,24 @@
+[Unit]
+Description=KashiwaaS Slack Bot (Socket Mode)
+Documentation=file:/home/ubuntu/ghq/github.com/takak2166/KashiwaaS/docs/bot.md
+After=network-online.target kashiwaas-valkey.service
+Wants=network-online.target
+Requires=kashiwaas-valkey.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ghq/github.com/takak2166/KashiwaaS
+EnvironmentFile=/home/ubuntu/ghq/github.com/takak2166/KashiwaaS/.env
+Environment=VALKEY_URL=redis://127.0.0.1:6379/0
+ExecStart=/home/ubuntu/.local/bin/poetry run python -m src.bot.kashiwaas
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kashiwaas-bot
+
+# One replica — do not scale this unit horizontally without Valkey locking changes.
+[Install]
+WantedBy=multi-user.target

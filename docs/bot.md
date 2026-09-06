@@ -6,11 +6,24 @@ Mentioning `@kashiwaas` in Slack sends the question to the Cursor Cloud Agents A
 
 - Configuration uses the same `apply_dotenv()` + `load_config()` as the CLI, only in the bot’s `main` (no global config at import time) — [runtime-config.md](runtime-config.md).
 - For the full environment variable list, Slack App setup, and troubleshooting, treat [README.md](../README.md) **KashiwaaS Bot** as canonical; this page is an index.
+- **Production platform:** Slack only ([production-cutover-runbook.md](production-cutover-runbook.md)).
+- **ubuntu24 host deployment:** systemd units in [../deploy/README.md](../deploy/README.md) (`kashiwaas-valkey` + `kashiwaas-bot`). Run **one replica**.
+
+## Start / stop / logs (systemd)
+
+```bash
+sudo systemctl start kashiwaas-bot
+sudo systemctl stop kashiwaas-bot
+sudo journalctl -u kashiwaas-bot -f
+```
+
+Valkey must be up first (`kashiwaas-valkey.service` or `docker compose up -d valkey`).
 
 ## Related environment variables (see README)
 
 - `SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`: Socket Mode
-- `CURSOR_API_KEY`, `CURSOR_SOURCE_REPOSITORY`, `CURSOR_POLL_INTERVAL`, `CURSOR_POLL_TIMEOUT`, `CURSOR_MODEL`
+- `CURSOR_API_KEY`, `CURSOR_ENV_TYPE`, `CURSOR_ENV_NAME`, `CURSOR_LAUNCH_MODE`, `CURSOR_POLL_*`, `CURSOR_MODEL`
+- `VALKEY_URL`: thread → agent mapping (defaults to `redis://localhost:6379/0` if unset; override for Compose vs host systemd — see [deploy/README.md](../deploy/README.md))
 
 ## Valkey and `ThreadConversationRepository` wiring
 
