@@ -23,7 +23,7 @@ Valkey must be up first (`kashiwaas-valkey.service` or `docker compose up -d val
 
 - `SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`: Socket Mode
 - `CURSOR_API_KEY`, `CURSOR_ENV_TYPE`, `CURSOR_ENV_NAME`, `CURSOR_LAUNCH_MODE`, `CURSOR_POLL_*`, `CURSOR_MODEL`
-- `VALKEY_URL`: thread → agent mapping (required for follow-ups)
+- `VALKEY_URL`: thread → agent mapping (defaults to `redis://localhost:6379/0` if unset; override for Compose vs host systemd — see [deploy/README.md](../deploy/README.md))
 
 ## Valkey and `ThreadConversationRepository` wiring
 

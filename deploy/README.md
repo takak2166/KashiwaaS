@@ -10,7 +10,8 @@ poetry install --no-interaction
 
 # Host .env (never commit) — see docs/cursor-secrets.md
 cp .env.example .env
-# Edit: SLACK_*, CURSOR_*, VALKEY_URL=redis://127.0.0.1:6379/0
+# Edit: SLACK_*, CURSOR_* (leave VALKEY_URL as in .env.example for Compose;
+# kashiwaas-bot.service overrides VALKEY_URL to redis://127.0.0.1:6379/0 for host Bot)
 
 sudo cp deploy/systemd/kashiwaas-valkey.service /etc/systemd/system/
 sudo cp deploy/systemd/kashiwaas-bot.service /etc/systemd/system/
