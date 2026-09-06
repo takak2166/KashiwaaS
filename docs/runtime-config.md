@@ -18,11 +18,7 @@
   ELASTICSEARCH_HOST=http://elasticsearch:9200
   ELASTICSEARCH_USER=elastic
   ELASTICSEARCH_PASSWORD=changeme
-<<<<<<< HEAD
   CURSOR_API_KEY=key_your-cursor-api-key
-=======
-  CURSOR_API_KEY=key_your-user-api-key
->>>>>>> 0014a14 (docs(TAK-135): document Cursor user API key and secret placement)
   ```
 - Add `.env` to `.gitignore`
 - In production, prefer Docker secrets or Kubernetes secrets

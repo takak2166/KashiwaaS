@@ -63,7 +63,7 @@ The Bot and API payloads **must** use the internal `name` label. The display nam
 
 ### Restart policy
 
-ubuntu24 Worker is connected via **Cursor Remote Control** (IDE / CLI outbound connection). We do **not** run a separate systemd unit for the Worker process in this phase.
+ubuntu24 worker is connected via **Cursor Remote Control** (IDE / CLI outbound connection). We do **not** run a separate systemd unit for the Worker process in this phase.
 
 | Event | Expected behavior |
 |-------|-------------------|
@@ -71,15 +71,17 @@ ubuntu24 Worker is connected via **Cursor Remote Control** (IDE / CLI outbound c
 | OS reboot | Reconnect Cursor Remote on ubuntu24 (same flow as initial setup) |
 | Worker disconnected | Open Cursor on ubuntu24 → verify machine appears under My Machines → reconnect |
 
-**Decision:** Use **Cursor Remote reconnect** after reboot rather than standalone `agent worker start` systemd, until unattended worker startup is required.
+**Decision:** Use **Cursor Remote reconnect** after reboot rather than deploying a dedicated systemd unit for `agent worker start`, until unattended worker startup is required.
 
 ### Health check (after reboot or incident)
 
 ```bash
+: "${CURSOR_ENV_NAME:?Set CURSOR_ENV_NAME}"
+
 # 1. Worker connected?
 curl -u "$CURSOR_API_KEY:" \
   "https://api.cursor.com/v0/private-workers?status=all&limit=50" \
-  | jq '.workers[] | select(.labels[]? | select(.key=="name" and .value=="cursor-agent-worker-676f7f7b4d"))'
+  | jq --arg n "$CURSOR_ENV_NAME" '.workers[] | select(.labels[]? | select(.key=="name" and .value==$n))'
 
 # 2. Optional: list recent agents on this machine
 curl -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=5"
