@@ -25,7 +25,7 @@ from src.bot.kashiwaas import (
     _say_markdown_chunks,
     _split_message,
 )
-from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorTimeoutError
+from src.cursor.client import AgentResult, CursorTimeoutError, RunStatus
 from src.utils.config import ValkeyConfig
 
 
@@ -255,8 +255,9 @@ class TestHandleMention:
         cursor_client = MagicMock()
         cursor_client.ask.return_value = AgentResult(
             agent_id="agent_1",
-            status=AgentStatus.FINISHED,
-            messages=[AgentMessage(id="m1", type="assistant_message", text="Python is a language.")],
+            run_id="run1",
+            status=RunStatus.FINISHED,
+            result_text="Python is a language.",
         )
 
         _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
@@ -295,13 +296,14 @@ class TestHandleMention:
         client = MagicMock()
         cursor_client = MagicMock()
 
-        def ask_impl(q, expected_previous_message_id=None, on_poll=None):
+        def ask_impl(q, expected_previous_run_id=None, on_poll=None):
             if on_poll:
                 on_poll(float(POLL_PROGRESS_POST_INTERVAL_SECONDS))
             return AgentResult(
                 agent_id="agent_1",
-                status=AgentStatus.FINISHED,
-                messages=[AgentMessage(id="m1", type="assistant_message", text="ok")],
+                run_id="run1",
+                status=RunStatus.FINISHED,
+                result_text="ok",
             )
 
         cursor_client.ask.side_effect = ask_impl
@@ -382,8 +384,9 @@ class TestHandleMention:
         cursor_client = MagicMock()
         cursor_client.ask.return_value = AgentResult(
             agent_id="agent_1",
-            status=AgentStatus.FINISHED,
-            messages=[AgentMessage(id="m1", type="assistant_message", text="Here is the answer.")],
+            run_id="run1",
+            status=RunStatus.FINISHED,
+            result_text="Here is the answer.",
         )
 
         _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
@@ -425,8 +428,9 @@ class TestHandleMention:
         cursor_client = MagicMock()
         cursor_client.followup.return_value = AgentResult(
             agent_id="agent_1",
-            status=AgentStatus.ERROR,
-            messages=[],
+            run_id="run_err",
+            status=RunStatus.ERROR,
+            result_text=None,
         )
 
         _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
@@ -496,8 +500,9 @@ class TestThreadLocks:
                 in_flight -= 1
             return AgentResult(
                 agent_id="agent_1",
-                status=AgentStatus.FINISHED,
-                messages=[AgentMessage(id="m1", type="assistant_message", text="ok")],
+                run_id="run1",
+                status=RunStatus.FINISHED,
+                result_text="ok",
             )
 
         ack1, ack2 = MagicMock(), MagicMock()
@@ -505,7 +510,6 @@ class TestThreadLocks:
         client = MagicMock()
         cursor_client = MagicMock()
         cursor_client.followup.side_effect = followup_side_effect
-        cursor_client.get_latest_assistant_message_obj.side_effect = lambda msgs: msgs[-1] if msgs else None
 
         event1 = {"text": "<@U12345> one", "channel": "C123", "ts": "1.0", "thread_ts": "thread_1"}
         event2 = {"text": "<@U12345> two", "channel": "C123", "ts": "2.0", "thread_ts": "thread_1"}
@@ -555,17 +559,17 @@ class TestThreadLocks:
         cursor_client = MagicMock()
         cursor_client.followup.return_value = AgentResult(
             agent_id="agent_1",
-            status=AgentStatus.FINISHED,
-            messages=[],  # no assistant messages
+            run_id="run1",
+            status=RunStatus.FINISHED,
+            result_text=None,
         )
-        cursor_client.get_latest_assistant_message_obj.return_value = None
 
         _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
 
         mock_repo.delete.assert_called_with("thread_1")
 
     @patch("src.bot.application.mention_service.threading.Thread")
-    def test_duplicate_assistant_message_not_sent_twice(self, mock_thread_class):
+    def test_stale_run_id_posts_failure(self, mock_thread_class):
         from src.bot.kashiwaas import _handle_mention
 
         mock_repo = MagicMock()
@@ -595,74 +599,14 @@ class TestThreadLocks:
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
-        cursor_client.conversation_retry_max_retries = 4
         cursor_client.followup.return_value = AgentResult(
             agent_id="agent_1",
-            status=AgentStatus.FINISHED,
-            messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
+            run_id="m_dup",
+            status=RunStatus.FINISHED,
+            result_text="duplicate",
         )
-        cursor_client.get_latest_assistant_message_obj.side_effect = [
-            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
-            AgentMessage(id="m_new", type="assistant_message", text="new answer"),
-        ]
-        cursor_client.get_conversation_after_complete.return_value = [
-            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
-            AgentMessage(id="m_new", type="assistant_message", text="new answer"),
-        ]
-
-        _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
-
-        say.assert_called()
-        cursor_client.get_conversation_after_complete.assert_called()
-
-    @patch("src.bot.application.mention_service.threading.Thread")
-    def test_duplicate_assistant_message_retry_still_duplicate_returns_error(self, mock_thread_class):
-        from src.bot.kashiwaas import _handle_mention
-
-        mock_repo = MagicMock()
-
-        def run_target_immediately(*args, **kwargs):
-            target = kwargs.get("target")
-            mock_thread = MagicMock()
-
-            def start():
-                if target:
-                    target()
-
-            mock_thread.start.side_effect = start
-            return mock_thread
-
-        mock_thread_class.side_effect = run_target_immediately
-
-        mock_repo.get.return_value = ThreadConversation("thread_1", "agent_1", "m_dup", None)
-
-        event = {
-            "text": "<@U12345> followup question",
-            "channel": "C123",
-            "ts": "1234.0004",
-            "thread_ts": "thread_1",
-        }
-        ack = MagicMock()
-        say = MagicMock()
-        client = MagicMock()
-        cursor_client = MagicMock()
-        cursor_client.conversation_retry_max_retries = 2
-        cursor_client.followup.return_value = AgentResult(
-            agent_id="agent_1",
-            status=AgentStatus.FINISHED,
-            messages=[AgentMessage(id="m_dup", type="assistant_message", text="duplicate")],
-        )
-        cursor_client.get_latest_assistant_message_obj.side_effect = [
-            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
-            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
-            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
-        ]
-        cursor_client.get_conversation_after_complete.return_value = [
-            AgentMessage(id="m_dup", type="assistant_message", text="duplicate"),
-        ]
 
         _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
 
         say.assert_called_once()
-        assert "same response content" in say.call_args[1]["text"]
-        assert cursor_client.get_conversation_after_complete.call_count == 2
+        assert "Failed to retrieve a new response" in say.call_args[1]["text"]

@@ -286,9 +286,7 @@ def create_mattermost_stack(
 ) -> tuple[MattermostConfig, Driver, CursorClient, ValkeyThreadConversationRepository, MattermostBotClient, str]:
     mm_cfg = _require_mattermost_bot_config(cfg)
     if not mm_cfg.verify_tls:
-        logger.warning(
-            "MATTERMOST_VERIFY_TLS is disabled; TLS certificate verification is off for REST and WebSocket"
-        )
+        logger.warning("MATTERMOST_VERIFY_TLS is disabled; TLS certificate verification is off for REST and WebSocket")
     driver = Driver(_mattermost_driver_options(mm_cfg))
     driver.login()
     mm_cfg = _resolve_mattermost_bot_user_id(mm_cfg, driver)

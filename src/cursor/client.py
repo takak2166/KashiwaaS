@@ -1,7 +1,10 @@
 """
-Cursor Cloud Agents API Client
-Provides functionality for interacting with Cursor's Cloud Agents API for Q&A.
+Cursor Cloud Agents API v1 Client
+
+Launches agents on cloud, pool, or machine environments and polls run status.
 """
+
+from __future__ import annotations
 
 import time
 from base64 import b64encode
@@ -19,29 +22,34 @@ logger = get_logger(__name__)
 BASE_URL = "https://api.cursor.com"
 
 
-class AgentStatus(str, Enum):
+class RunStatus(str, Enum):
     CREATING = "CREATING"
     RUNNING = "RUNNING"
     FINISHED = "FINISHED"
-    STOPPED = "STOPPED"
     ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
 
 
-TERMINAL_STATUSES = {AgentStatus.FINISHED, AgentStatus.STOPPED, AgentStatus.ERROR}
+# Backward-compatible alias for bot layer imports
+AgentStatus = RunStatus
 
+TERMINAL_STATUSES = {
+    RunStatus.FINISHED,
+    RunStatus.ERROR,
+    RunStatus.CANCELLED,
+    RunStatus.EXPIRED,
+}
 
-@dataclass
-class AgentMessage:
-    id: str
-    type: str
-    text: str
+FAILURE_STATUSES = {RunStatus.ERROR, RunStatus.CANCELLED, RunStatus.EXPIRED}
 
 
 @dataclass
 class AgentResult:
     agent_id: str
-    status: AgentStatus
-    messages: List[AgentMessage]
+    run_id: str
+    status: RunStatus
+    result_text: Optional[str] = None
 
 
 class CursorAPIError(Exception):
@@ -53,43 +61,45 @@ class CursorAPIError(Exception):
 
 
 class CursorTimeoutError(Exception):
-    """Raised when polling for agent completion exceeds the timeout."""
+    """Raised when polling for run completion exceeds the timeout."""
 
 
 class CursorClient:
     """
-    Client for Cursor Cloud Agents API.
+    Client for Cursor Cloud Agents API v1.
 
-    Uses the Cloud Agents API to send prompts and retrieve AI responses.
-    Each Q&A session creates a cloud agent tied to a repository.
+    Creates agents (with initial run) and follow-up runs; polls until terminal
+    and reads assistant text from the run ``result`` field.
     """
 
     def __init__(
         self,
         api_key: str,
-        source_repository: str,
+        *,
+        env_type: Optional[str] = None,
+        env_name: Optional[str] = None,
+        launch_mode: str = "repo",
+        source_repository: str = "https://github.com/takak2166/KashiwaaS",
         source_ref: str = "main",
+        auto_create_pr: bool = False,
         poll_interval: int = 5,
         poll_timeout: int = DEFAULT_CURSOR_POLL_TIMEOUT_SECONDS,
         model: Optional[str] = None,
         conversation_retry_max_retries: int = 4,
         conversation_retry_delay_seconds: float = 1.5,
-        conversation_text_stabilize_interval_seconds: float = 1.0,
-        conversation_text_stabilize_required_matches: int = 3,
-        conversation_text_stabilize_max_rounds: int = 60,
     ):
         self.api_key = api_key
+        self.env_type = env_type
+        self.env_name = env_name
+        self.launch_mode = launch_mode
         self.source_repository = source_repository
         self.source_ref = source_ref
+        self.auto_create_pr = auto_create_pr
         self.poll_interval = poll_interval
         self.poll_timeout = poll_timeout
-        # Optional model name for Cloud Agents API (e.g., "composer-2")
         self.model = model
         self.conversation_retry_max_retries = conversation_retry_max_retries
         self.conversation_retry_delay_seconds = conversation_retry_delay_seconds
-        self.conversation_text_stabilize_interval_seconds = conversation_text_stabilize_interval_seconds
-        self.conversation_text_stabilize_required_matches = conversation_text_stabilize_required_matches
-        self.conversation_text_stabilize_max_rounds = conversation_text_stabilize_max_rounds
 
         encoded = b64encode(f"{api_key}:".encode()).decode()
         self.headers = {
@@ -116,236 +126,197 @@ class CursorClient:
         return response.json()
 
     def list_models(self) -> List[str]:
-        """
-        Return the list of model IDs recommended for the launch endpoint.
+        """Return model IDs from GET /v1/models."""
+        data = self._request("GET", "/v1/models")
+        items = data.get("items") or data.get("models") or []
+        if items and isinstance(items[0], dict):
+            return [str(item.get("id", "")) for item in items if item.get("id")]
+        return list(items)
 
-        Use these values for CURSOR_MODEL. The list does not include "default";
-        omit model or use "default"/"Auto" for API default.
-        """
-        data = self._request("GET", "/v0/models")
-        return list(data.get("models", []))
+    def _model_payload(self) -> Optional[Dict[str, Any]]:
+        if not self.model:
+            return None
+        normalized = self.model.strip().lower()
+        if normalized in ("", "default", "auto"):
+            return None
+        return {"id": self.model.strip()}
 
-    def create_agent(self, prompt: str) -> str:
-        """
-        Launch a new cloud agent with the given prompt.
+    def _env_payload(self) -> Optional[Dict[str, str]]:
+        if not self.env_type:
+            return None
+        env: Dict[str, str] = {"type": self.env_type}
+        if self.env_name:
+            env["name"] = self.env_name
+        return env
 
-        Returns:
-            The agent ID.
-        """
+    def _repos_payload(self) -> Optional[List[Dict[str, str]]]:
+        if self.launch_mode != "repo":
+            return None
+        return [
+            {
+                "url": self.source_repository,
+                "startingRef": self.source_ref,
+            }
+        ]
+
+    def _build_create_payload(self, prompt: str) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "prompt": {"text": prompt},
-            "source": {
-                "repository": self.source_repository,
-                "ref": self.source_ref,
-            },
-            "target": {
-                "autoCreatePr": False,
-            },
+            "autoCreatePR": self.auto_create_pr,
         }
-        # model: optional. Use "default" or omit for API default; explicit ID (e.g. composer-2) otherwise.
-        # Treat empty, "default", or "Auto" (case-insensitive) as "use API default".
-        if self.model:
-            normalized = self.model.strip().lower()
-            if normalized not in ("", "default", "auto"):
-                payload["model"] = self.model.strip()
-            # else: omit payload["model"] so API uses user/team/system default
-        data = self._request("POST", "/v0/agents", json=payload)
-        agent_id = data["id"]
-        logger.info(f"Created agent {agent_id} for prompt: {prompt[:80]}...")
-        return agent_id
+        model = self._model_payload()
+        if model is not None:
+            payload["model"] = model
+        env = self._env_payload()
+        if env is not None:
+            payload["env"] = env
+        repos = self._repos_payload()
+        if repos is not None:
+            payload["repos"] = repos
+        return payload
 
-    def get_agent_status(self, agent_id: str) -> AgentStatus:
-        """Get the current status of an agent."""
-        data = self._request("GET", f"/v0/agents/{agent_id}")
+    def create_agent(self, prompt: str) -> tuple[str, str]:
+        """
+        POST /v1/agents — create agent and enqueue initial run.
+
+        Returns:
+            (agent_id, run_id)
+        """
+        data = self._request("POST", "/v1/agents", json=self._build_create_payload(prompt))
+        agent_id = data["agent"]["id"]
+        run_id = data["run"]["id"]
+        logger.info("Created agent {} run {} for prompt: {}...", agent_id, run_id, prompt[:80])
+        return agent_id, run_id
+
+    def send_followup(self, agent_id: str, prompt: str) -> str:
+        """POST /v1/agents/{id}/runs — enqueue a follow-up run."""
+        payload = {"prompt": {"text": prompt}}
+        data = self._request("POST", f"/v1/agents/{agent_id}/runs", json=payload)
+        run_id = data["run"]["id"]
+        logger.info("Sent followup run {} to agent {}: {}...", run_id, agent_id, prompt[:80])
+        return run_id
+
+    def _run_status_from_data(self, data: Dict[str, Any]) -> RunStatus:
         raw_status = data.get("status", "ERROR")
         try:
-            return AgentStatus(raw_status)
+            return RunStatus(raw_status)
         except ValueError:
-            logger.warning(f"Unknown agent status: {raw_status}")
-            return AgentStatus.ERROR
+            logger.warning("Unknown run status: {}", raw_status)
+            return RunStatus.ERROR
 
-    def get_conversation(self, agent_id: str) -> List[AgentMessage]:
-        """Retrieve the conversation history of an agent."""
-        data = self._request("GET", f"/v0/agents/{agent_id}/conversation")
-        messages = []
-        for msg in data.get("messages", []):
-            messages.append(
-                AgentMessage(
-                    id=msg.get("id", ""),
-                    type=msg.get("type", ""),
-                    text=msg.get("text", ""),
-                )
-            )
-        return messages
+    def get_run_status(self, agent_id: str, run_id: str) -> RunStatus:
+        """GET /v1/agents/{id}/runs/{runId} — run status only."""
+        data = self._request("GET", f"/v1/agents/{agent_id}/runs/{run_id}")
+        return self._run_status_from_data(data)
 
-    def _stabilize_conversation_assistant_text(self, agent_id: str, messages: List[AgentMessage]) -> List[AgentMessage]:
-        """
-        Poll conversation until the latest assistant ``text`` is unchanged for
-        ``conversation_text_stabilize_required_matches`` consecutive fetches
-        (after ``conversation_text_stabilize_interval_seconds`` between fetches),
-        or ``conversation_text_stabilize_max_rounds`` additional polls elapse.
-        """
-        required = self.conversation_text_stabilize_required_matches
-        if required < 2:
-            return messages
-        latest = self.get_latest_assistant_message_obj(messages)
-        if latest is None:
-            return messages
-        prev_text = latest.text
-        stable_count = 1
-        interval = self.conversation_text_stabilize_interval_seconds
-        for _ in range(self.conversation_text_stabilize_max_rounds):
-            if stable_count >= required:
-                return messages
-            time.sleep(interval)
-            messages = self.get_conversation(agent_id)
-            latest = self.get_latest_assistant_message_obj(messages)
-            if latest is None:
-                return messages
-            if latest.text == prev_text:
-                stable_count += 1
-            else:
-                stable_count = 1
-                prev_text = latest.text
-        return messages
-
-    def get_conversation_after_complete(
-        self,
-        agent_id: str,
-        expected_previous_message_id: Optional[str] = None,
-        max_retries: Optional[int] = None,
-        delay_seconds: Optional[float] = None,
-    ) -> List[AgentMessage]:
-        """
-        Retrieve the conversation after agent completion, with retries.
-
-        When expected_previous_message_id is set (e.g. from the last reply in
-        this thread), retries until the latest assistant message id differs from
-        it, so we avoid returning a stale snapshot that still shows the previous
-        answer (API eventual consistency). Uses exponential backoff between
-        retries (delay_seconds * 2^attempt). Uses conversation_retry_max_retries
-        and conversation_retry_delay_seconds from the client when not overridden.
-
-        Then polls until the latest assistant message text is stable for
-        ``conversation_text_stabilize_required_matches`` consecutive reads
-        (``conversation_text_stabilize_interval_seconds`` apart), so partially
-        materialized replies are less likely to be returned right after FINISHED.
-        """
-        max_retries = max_retries if max_retries is not None else self.conversation_retry_max_retries
-        delay_seconds = delay_seconds if delay_seconds is not None else self.conversation_retry_delay_seconds
-        if max_retries < 1:
-            messages = self.get_conversation(agent_id)
-            return self._stabilize_conversation_assistant_text(agent_id, messages)
-        for attempt in range(max_retries):
-            messages = self.get_conversation(agent_id)
-            latest = self.get_latest_assistant_message_obj(messages)
-            if expected_previous_message_id is None or latest is None:
-                return self._stabilize_conversation_assistant_text(agent_id, messages)
-            if latest.id != expected_previous_message_id:
-                return self._stabilize_conversation_assistant_text(agent_id, messages)
-            if attempt < max_retries - 1:
-                time.sleep(delay_seconds * (2**attempt))
-        return self._stabilize_conversation_assistant_text(agent_id, messages)
-
-    def send_followup(self, agent_id: str, prompt: str) -> None:
-        """Send a follow-up prompt to an existing agent."""
-        payload = {"prompt": {"text": prompt}}
-        self._request("POST", f"/v0/agents/{agent_id}/followup", json=payload)
-        logger.info(f"Sent followup to agent {agent_id}: {prompt[:80]}...")
+    def get_run(self, agent_id: str, run_id: str) -> Dict[str, Any]:
+        """GET /v1/agents/{id}/runs/{runId} — full run record."""
+        return self._request("GET", f"/v1/agents/{agent_id}/runs/{run_id}")
 
     def poll_until_complete(
         self,
         agent_id: str,
+        run_id: str,
         *,
         on_poll: Optional[Callable[[float], None]] = None,
-    ) -> AgentStatus:
+    ) -> RunStatus:
         """
-        Poll the agent status until it reaches a terminal state or times out.
-
-        Args:
-            agent_id: Cloud agent id.
-            on_poll: Called after each non-terminal poll wait with cumulative elapsed
-                seconds (after ``poll_interval`` sleeps). Omitted or ``None`` skips.
-
-        Returns:
-            The final AgentStatus.
+        Poll run status until terminal or timeout.
 
         Raises:
-            CursorTimeoutError: If polling exceeds the timeout.
+            CursorTimeoutError: If polling exceeds ``poll_timeout``.
         """
         elapsed = 0.0
         while elapsed < self.poll_timeout:
-            status = self.get_agent_status(agent_id)
+            status = self.get_run_status(agent_id, run_id)
             if status in TERMINAL_STATUSES:
-                logger.info(f"Agent {agent_id} reached terminal status: {status.value}")
+                logger.info("Run {} on agent {} reached terminal status: {}", run_id, agent_id, status.value)
                 return status
             time.sleep(self.poll_interval)
             elapsed += float(self.poll_interval)
             if on_poll is not None:
                 on_poll(elapsed)
 
-        raise CursorTimeoutError(f"Agent {agent_id} did not complete within {self.poll_timeout}s")
+        raise CursorTimeoutError(f"Run {run_id} on agent {agent_id} did not complete within {self.poll_timeout}s")
+
+    def _result_from_run(self, agent_id: str, run_id: str, status: RunStatus) -> AgentResult:
+        result_text: Optional[str] = None
+        if status == RunStatus.FINISHED:
+            data = self.get_run(agent_id, run_id)
+            raw = data.get("result")
+            if isinstance(raw, str) and raw:
+                result_text = raw
+        return AgentResult(
+            agent_id=agent_id,
+            run_id=run_id,
+            status=status,
+            result_text=result_text,
+        )
+
+    def get_run_after_complete(
+        self,
+        agent_id: str,
+        run_id: str,
+        *,
+        expected_previous_run_id: Optional[str] = None,
+        max_retries: Optional[int] = None,
+        delay_seconds: Optional[float] = None,
+    ) -> AgentResult:
+        """
+        Re-fetch a terminal run, retrying when the run id still matches a stale
+        previous id (eventual consistency on duplicate detection path).
+        """
+        max_retries = max_retries if max_retries is not None else self.conversation_retry_max_retries
+        delay_seconds = delay_seconds if delay_seconds is not None else self.conversation_retry_delay_seconds
+        if max_retries < 1:
+            data = self.get_run(agent_id, run_id)
+            status = self._run_status_from_data(data)
+            return self._result_from_run(agent_id, run_id, status)
+
+        for attempt in range(max_retries):
+            data = self.get_run(agent_id, run_id)
+            status = self._run_status_from_data(data)
+            current_run_id = data.get("id", run_id)
+            if expected_previous_run_id is None or current_run_id != expected_previous_run_id:
+                return self._result_from_run(agent_id, current_run_id, status)
+            if attempt < max_retries - 1:
+                time.sleep(delay_seconds * (2**attempt))
+
+        data = self.get_run(agent_id, run_id)
+        status = self._run_status_from_data(data)
+        return self._result_from_run(agent_id, data.get("id", run_id), status)
 
     def ask(
         self,
         prompt: str,
-        expected_previous_message_id: Optional[str] = None,
+        expected_previous_run_id: Optional[str] = None,
         on_poll: Optional[Callable[[float], None]] = None,
     ) -> AgentResult:
-        """
-        Create an agent, wait for completion, and return the conversation.
-        """
-        agent_id = self.create_agent(prompt)
-        status = self.poll_until_complete(agent_id, on_poll=on_poll)
-        if status == AgentStatus.FINISHED:
-            messages = self.get_conversation_after_complete(
-                agent_id, expected_previous_message_id=expected_previous_message_id
+        """Create agent + initial run, poll, return result."""
+        agent_id, run_id = self.create_agent(prompt)
+        status = self.poll_until_complete(agent_id, run_id, on_poll=on_poll)
+        if status == RunStatus.FINISHED and expected_previous_run_id is not None:
+            return self.get_run_after_complete(
+                agent_id,
+                run_id,
+                expected_previous_run_id=expected_previous_run_id,
             )
-        else:
-            # Avoid pointless retry delays for ERROR/STOPPED agents
-            messages = self.get_conversation(agent_id)
-        return AgentResult(agent_id=agent_id, status=status, messages=messages)
+        return self._result_from_run(agent_id, run_id, status)
 
     def followup(
         self,
         agent_id: str,
         prompt: str,
-        expected_previous_message_id: Optional[str] = None,
+        expected_previous_run_id: Optional[str] = None,
         on_poll: Optional[Callable[[float], None]] = None,
     ) -> AgentResult:
-        """
-        Send a follow-up to an existing agent and return updated conversation.
-        """
-        self.send_followup(agent_id, prompt)
-        status = self.poll_until_complete(agent_id, on_poll=on_poll)
-        if status == AgentStatus.FINISHED:
-            messages = self.get_conversation_after_complete(
-                agent_id, expected_previous_message_id=expected_previous_message_id
+        """Send follow-up run, poll, return result."""
+        run_id = self.send_followup(agent_id, prompt)
+        status = self.poll_until_complete(agent_id, run_id, on_poll=on_poll)
+        if status == RunStatus.FINISHED and expected_previous_run_id is not None:
+            return self.get_run_after_complete(
+                agent_id,
+                run_id,
+                expected_previous_run_id=expected_previous_run_id,
             )
-        else:
-            # Avoid pointless retry delays for ERROR/STOPPED agents
-            messages = self.get_conversation(agent_id)
-        return AgentResult(agent_id=agent_id, status=status, messages=messages)
-
-    def get_latest_assistant_message_obj(self, messages: List[AgentMessage]) -> Optional[AgentMessage]:
-        """
-        Return the most recent assistant message (full message with id and text).
-
-        Cursor API returns messages in chronological order (oldest first).
-        So the last assistant_message in the list is the latest.
-        """
-        latest: Optional[AgentMessage] = None
-        for msg in messages:
-            if msg.type == "assistant_message":
-                latest = msg
-        return latest
-
-    def get_latest_assistant_message(self, messages: List[AgentMessage]) -> Optional[str]:
-        """
-        Extract the most recent assistant message from a conversation.
-
-        Cursor API returns messages in chronological order (oldest first).
-        So the last assistant_message in the list is the latest.
-        """
-        msg = self.get_latest_assistant_message_obj(messages)
-        return msg.text if msg else None
+        return self._result_from_run(agent_id, run_id, status)
