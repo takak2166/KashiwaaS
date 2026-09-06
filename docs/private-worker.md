@@ -7,7 +7,7 @@ KashiwaaS Bot launches Cursor Cloud Agents on a **self-hosted machine** (Remote 
 | Setting | Value | Notes |
 |---------|-------|-------|
 | `CURSOR_ENV_TYPE` | `machine` | Remote Control / My Machines |
-| `CURSOR_ENV_NAME` | `cursor-agent-worker-676f7f7b4d` | API internal label — **not** the UI display name |
+| `CURSOR_ENV_NAME` | `<your-machine-env-name>` | API internal label — **not** the UI display name; resolve via curl below |
 | `CURSOR_LAUNCH_MODE` | `env_only` | ubuntu24 worker has **no repo** checkout |
 | Chat platform | Slack | Mattermost is out of scope for production cutover |
 
@@ -15,16 +15,19 @@ KashiwaaS Bot launches Cursor Cloud Agents on a **self-hosted machine** (Remote 
 
 - **Adopt `machine`:** Single ubuntu24 VM already runs Remote Control; matches KashiwaaS ops (same host as Bot target).
 - **Do not use `pool`:** No team pool worker is provisioned; Service Account keys are unnecessary for `machine`.
-- **Do not use `cloud`:** Cursor-hosted VMs are the legacy path being replaced (see [production-cutover-runbook.md](production-cutover-runbook.md)).
+- **Do not use `cloud`:** Cursor-hosted VMs are the legacy path being replaced (TAK-137 production cutover runbook).
 
-## Observed workers (2026-09-06)
+## Resolve worker names (required before cutover)
 
 Re-fetch before changing production values:
 
 ```bash
 curl -u "$CURSOR_API_KEY:" \
-  "https://api.cursor.com/v0/private-workers?status=all&limit=50"
+  "https://api.cursor.com/v0/private-workers?status=all&limit=50" \
+  | jq '.workers[] | {display_name, env_name: (.labels[] | select(.key=="name") | .value), worker_id: .id, repos}'
 ```
+
+Pick the row for your ubuntu24 production machine. Set `CURSOR_ENV_NAME` to the **`env_name`** value (internal API label), not the UI display name.
 
 Existing agents' `env` field:
 
@@ -35,14 +38,16 @@ curl -u "$CURSOR_API_KEY:" \
 
 ### Primary (KashiwaaS production target)
 
+Example shape after resolving via curl (do **not** commit live values):
+
 ```yaml
 cursor_env:
   type: machine
-  display_name: "~/ghq/github.com/takak2166 @ ubuntu24"
-  name: cursor-agent-worker-676f7f7b4d          # POST /v1/agents env.name
-  worker_id: 93d48c71-7abb-5e07-a280-20427d5e31f5
+  display_name: "~/ghq/github.com/takak2166 @ ubuntu24"   # UI label — example only
+  name: <your-machine-env-name>                            # POST /v1/agents env.name → CURSOR_ENV_NAME
+  worker_id: <your-worker-id>
   workspace: /home/ubuntu/ghq/github.com/takak2166
-  repos: []                                       # no-repo worker
+  repos: []                                                # no-repo worker
   machine: ubuntu24
 ```
 
@@ -57,7 +62,7 @@ cursor_env:
 
 | UI / Slack `worker=` | Bot `CURSOR_ENV_NAME` |
 |----------------------|------------------------|
-| `~/ghq/github.com/takak2166 @ ubuntu24` | `cursor-agent-worker-676f7f7b4d` |
+| `~/ghq/github.com/takak2166 @ ubuntu24` | `<your-machine-env-name>` (from curl) |
 
 The Bot and API payloads **must** use the internal `name` label. The display name is for humans and the Cursor dashboard only.
 
@@ -65,8 +70,6 @@ The Bot and API payloads **must** use the internal `name` label. The display nam
 
 - [runtime-config.md](runtime-config.md) — environment variables
 - [bot.md](bot.md) — Slack Bot operation
-- [production-cutover-runbook.md](production-cutover-runbook.md) — cutover / rollback (TAK-137)
-- [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E (TAK-136)
 
 ## References
 
