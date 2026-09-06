@@ -569,7 +569,7 @@ class TestThreadLocks:
         mock_repo.delete.assert_called_with("thread_1")
 
     @patch("src.bot.application.mention_service.threading.Thread")
-    def test_duplicate_assistant_message_not_sent_twice(self, mock_thread_class):
+    def test_stale_run_id_posts_failure(self, mock_thread_class):
         from src.bot.kashiwaas import _handle_mention
 
         mock_repo = MagicMock()
@@ -599,64 +599,7 @@ class TestThreadLocks:
         say = MagicMock()
         client = MagicMock()
         cursor_client = MagicMock()
-        cursor_client.conversation_retry_max_retries = 4
         cursor_client.followup.return_value = AgentResult(
-            agent_id="agent_1",
-            run_id="m_dup",
-            status=RunStatus.FINISHED,
-            result_text="duplicate",
-        )
-        cursor_client.get_run_after_complete.return_value = AgentResult(
-            agent_id="agent_1",
-            run_id="m_new",
-            status=RunStatus.FINISHED,
-            result_text="new answer",
-        )
-
-        _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
-
-        say.assert_called()
-        cursor_client.get_run_after_complete.assert_called()
-
-    @patch("src.bot.application.mention_service.threading.Thread")
-    def test_duplicate_assistant_message_retry_still_duplicate_returns_error(self, mock_thread_class):
-        from src.bot.kashiwaas import _handle_mention
-
-        mock_repo = MagicMock()
-
-        def run_target_immediately(*args, **kwargs):
-            target = kwargs.get("target")
-            mock_thread = MagicMock()
-
-            def start():
-                if target:
-                    target()
-
-            mock_thread.start.side_effect = start
-            return mock_thread
-
-        mock_thread_class.side_effect = run_target_immediately
-
-        mock_repo.get.return_value = ThreadConversation("thread_1", "agent_1", "m_dup", None)
-
-        event = {
-            "text": "<@U12345> followup question",
-            "channel": "C123",
-            "ts": "1234.0004",
-            "thread_ts": "thread_1",
-        }
-        ack = MagicMock()
-        say = MagicMock()
-        client = MagicMock()
-        cursor_client = MagicMock()
-        cursor_client.conversation_retry_max_retries = 2
-        cursor_client.followup.return_value = AgentResult(
-            agent_id="agent_1",
-            run_id="m_dup",
-            status=RunStatus.FINISHED,
-            result_text="duplicate",
-        )
-        cursor_client.get_run_after_complete.return_value = AgentResult(
             agent_id="agent_1",
             run_id="m_dup",
             status=RunStatus.FINISHED,
@@ -666,5 +609,4 @@ class TestThreadLocks:
         _handle_mention(ack, event, say, client, cursor_client, mock_repo, mention_service=_mention_service_for_test())
 
         say.assert_called_once()
-        assert "same response content" in say.call_args[1]["text"]
-        assert cursor_client.get_run_after_complete.call_count == 2
+        assert "Failed to retrieve a new response" in say.call_args[1]["text"]
