@@ -10,7 +10,7 @@ Set these in host `.env` before cutover:
 
 ```bash
 CURSOR_ENV_TYPE=machine
-CURSOR_ENV_NAME=cursor-agent-worker-676f7f7b4d
+CURSOR_ENV_NAME=<your-machine-env-name>
 CURSOR_LAUNCH_MODE=env_only
 CURSOR_AUTO_CREATE_PR=false
 ```
@@ -64,7 +64,7 @@ Rollback if: Phase 1 fails after cutover, Worker unavailable >15 min, or error r
 
 | Decision | Detail |
 |----------|--------|
-| **v0 API in code** | Removed (TAK-134). No dual-path in main branch. |
+| **Bot legacy v0 launch path in code** | Removed (TAK-134). No dual-path in main branch. Manual `GET /v0/private-workers` health checks remain valid. |
 | **Cloud VM launches** | Disabled for production Bot once cutover completes. |
 | **Emergency cloud use** | Manual via Cursor dashboard only; Bot does not target cloud. |
 
