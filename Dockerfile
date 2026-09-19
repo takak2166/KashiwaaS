@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV BROWSER_PATH=/usr/bin/chromium
 
 # Install Poetry
-RUN pip install poetry==2.4.1
+RUN pip install poetry==2.5.0
 
 # Copy poetry configuration files
 COPY pyproject.toml poetry.lock* README.md ./
