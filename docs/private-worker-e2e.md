@@ -1,4 +1,4 @@
-# Private Worker E2E verification (TAK-136)
+# Private Worker E2E verification
 
 Validate self-hosted **machine** launches before enabling the Slack Bot path in production.
 

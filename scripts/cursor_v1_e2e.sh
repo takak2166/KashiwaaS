@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 E2E: v1 create + follow-up on self-hosted machine (TAK-136).
+# Phase 1 E2E: v1 create + follow-up on self-hosted machine.
 # Requires: curl, jq, CURSOR_API_KEY, CURSOR_ENV_NAME (and optional CURSOR_ENV_TYPE).
 set -euo pipefail
 
