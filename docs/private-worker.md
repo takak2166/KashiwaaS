@@ -94,12 +94,8 @@ Pass criteria: primary worker row present, status connected, `repos` empty (no-r
 - [cursor-secrets.md](cursor-secrets.md) — API key type, host placement, 403 triage
 - [runtime-config.md](runtime-config.md) — environment variables
 - [bot.md](bot.md) — Slack Bot operation
-<<<<<<< HEAD
 - [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E
-=======
-- [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E (TAK-136)
-- [production-cutover-runbook.md](production-cutover-runbook.md) — cutover / rollback (TAK-137)
->>>>>>> f5668c7 (fix(TAK-137): clarify rollback constraints and v0 wording)
+- [production-cutover-runbook.md](production-cutover-runbook.md) — cutover / rollback
 
 ## References
 
