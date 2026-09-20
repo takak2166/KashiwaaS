@@ -88,7 +88,7 @@ Start Valkey and the Bot before Slack tests. Set `CURSOR_LAUNCH_MODE=env_only` (
 |---------|-------|--------|
 | 401 / 403 on curl | API key | [cursor-secrets.md](cursor-secrets.md) 403 triage |
 | 404 / worker not found | Worker name | Verify `CURSOR_ENV_NAME` vs [private-worker.md](private-worker.md) |
-| Run stuck `RUNNING` | Worker | Reconnect Cursor Remote; see TAK-133 health check |
+| Run stuck `RUNNING` | Worker | Reconnect Cursor Remote; see [private-worker.md](private-worker.md) health check |
 | curl OK, Slack silent | Bot / Slack | Socket Mode tokens, channel invite, Bot logs |
 | Follow-up creates new agent | Valkey | `VALKEY_URL` reachable; one Bot replica |
 
