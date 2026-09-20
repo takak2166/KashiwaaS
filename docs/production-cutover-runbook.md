@@ -19,7 +19,7 @@ See [private-worker.md](private-worker.md) for display name mapping and worker v
 
 ## Pre-cutover checklist
 
-- [ ] [TAK-136 Phase 1](private-worker-e2e.md) curl E2E **PASS**
+- [ ] [Phase 1](private-worker-e2e.md) curl E2E **PASS**
 - [ ] Bot + Valkey running on ubuntu24 ([bot.md](bot.md))
 - [ ] `CURSOR_API_KEY` is **user** key ([cursor-secrets.md](cursor-secrets.md))
 - [ ] Worker connected ([private-worker.md](private-worker.md) health check)
