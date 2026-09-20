@@ -59,7 +59,7 @@ cursor_env:
 
 The Bot and API payloads **must** use the internal `name` label. The display name is for humans and the Cursor dashboard only.
 
-## Worker lifecycle (TAK-133)
+## Worker lifecycle
 
 ### Restart policy
 
