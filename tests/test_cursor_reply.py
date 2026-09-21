@@ -10,7 +10,7 @@ import pytest
 from src.bot.application.cursor_reply import fingerprint_text, run_cursor_reply
 from src.bot.application.processing_state import ProcessingState
 from src.bot.domain.conversation import ThreadConversation
-from src.cursor.client import AgentResult, CursorAPIError, CursorTimeoutError, RunStatus
+from src.cursor.client import AgentMessage, AgentResult, AgentStatus, CursorAPIError, CursorTimeoutError
 
 
 @dataclass
@@ -78,9 +78,11 @@ class TestRunCursorReplyAskPath:
         cursor = _client()
         cursor.ask.return_value = AgentResult(
             agent_id="ag1",
-            run_id="run1",
-            status=RunStatus.FINISHED,
-            result_text="Hello",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m1", type="assistant_message", text="Hello")],
+        )
+        cursor.get_latest_assistant_message_obj.return_value = AgentMessage(
+            id="m1", type="assistant_message", text="Hello"
         )
 
         run_cursor_reply(
@@ -104,9 +106,8 @@ class TestRunCursorReplyAskPath:
         cursor = _client()
         cursor.followup.return_value = AgentResult(
             agent_id="ag1",
-            run_id="run_err",
-            status=RunStatus.ERROR,
-            result_text=None,
+            status=AgentStatus.ERROR,
+            messages=[],
         )
 
         run_cursor_reply(
@@ -123,15 +124,14 @@ class TestRunCursorReplyAskPath:
         assert "error occurred" in adapter.posts_plain[0].lower()
         assert ProcessingState.FAILED in adapter.reacts
 
-    def test_cancelled_same_as_error(self) -> None:
+    def test_stopped_same_as_error(self) -> None:
         repo = _repo()
         adapter = _adapter()
         cursor = _client()
         cursor.ask.return_value = AgentResult(
             agent_id="ag1",
-            run_id="run_c",
-            status=RunStatus.CANCELLED,
-            result_text=None,
+            status=AgentStatus.STOPPED,
+            messages=[],
         )
 
         run_cursor_reply(
@@ -152,10 +152,10 @@ class TestRunCursorReplyAskPath:
         cursor = _client()
         cursor.ask.return_value = AgentResult(
             agent_id="ag1",
-            run_id="run1",
-            status=RunStatus.FINISHED,
-            result_text=None,
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m1", type="user_message", text="u")],
         )
+        cursor.get_latest_assistant_message_obj.return_value = None
 
         run_cursor_reply(
             thread_key="t3",
@@ -179,9 +179,11 @@ class TestRunCursorReplyFollowupPath:
         cursor = _client()
         cursor.followup.return_value = AgentResult(
             agent_id="ag_exist",
-            run_id="run2",
-            status=RunStatus.FINISHED,
-            result_text="More",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m2", type="assistant_message", text="More")],
+        )
+        cursor.get_latest_assistant_message_obj.return_value = AgentMessage(
+            id="m2", type="assistant_message", text="More"
         )
 
         run_cursor_reply(
@@ -196,33 +198,39 @@ class TestRunCursorReplyFollowupPath:
         cursor.followup.assert_called_once_with(
             "ag_exist",
             "Follow?",
-            expected_previous_run_id=None,
+            expected_previous_message_id=None,
             on_poll=None,
         )
         cursor.ask.assert_not_called()
         assert adapter.posts_assistant == ["More"]
 
 
-class TestRunCursorReplyStaleRunId:
-    def test_same_run_id_as_stored_posts_failure(self) -> None:
+class TestRunCursorReplyDuplicateRetry:
+    def test_retries_then_posts_when_refresh_differs(self) -> None:
         repo = _repo()
         repo.save(
             ThreadConversation(
                 "t1",
                 "ag1",
-                "same_run",
-                fingerprint_text("old body"),
+                "old_msg",
+                fingerprint_text("duplicate body"),
             )
         )
 
         adapter = _adapter()
-        cursor = _client()
+        cursor = _client(conversation_retry_max_retries=4)
+        dup_msg = AgentMessage(id="same_id", type="assistant_message", text="duplicate body")
+        fresh_msg = AgentMessage(id="new", type="assistant_message", text="fresh body")
+
         cursor.followup.return_value = AgentResult(
             agent_id="ag1",
-            run_id="same_run",
-            status=RunStatus.FINISHED,
-            result_text="duplicate body",
+            status=AgentStatus.FINISHED,
+            messages=[dup_msg],
         )
+        cursor.get_latest_assistant_message_obj.side_effect = [dup_msg, fresh_msg]
+        cursor.get_conversation_after_complete.return_value = [
+            AgentMessage(id="new", type="assistant_message", text="fresh body"),
+        ]
 
         run_cursor_reply(
             thread_key="t1",
@@ -233,7 +241,35 @@ class TestRunCursorReplyStaleRunId:
             on_poll=None,
         )
 
-        assert "Failed to retrieve a new response" in adapter.posts_plain[0]
+        cursor.get_conversation_after_complete.assert_called()
+        assert adapter.posts_assistant == ["fresh body"]
+        assert ProcessingState.SUCCESS in adapter.reacts
+
+    def test_duplicate_after_max_retries_posts_repeat_message(self) -> None:
+        repo = _repo()
+        repo.save(ThreadConversation("t1", "ag1", "same", None))
+
+        adapter = _adapter()
+        cursor = _client(conversation_retry_max_retries=2)
+        msg = AgentMessage(id="same", type="assistant_message", text="x")
+        cursor.followup.return_value = AgentResult(
+            agent_id="ag1",
+            status=AgentStatus.FINISHED,
+            messages=[msg],
+        )
+        cursor.get_latest_assistant_message_obj.return_value = msg
+        cursor.get_conversation_after_complete.return_value = [msg]
+
+        run_cursor_reply(
+            thread_key="t1",
+            question="Q?",
+            repo=repo,
+            cursor=cursor,
+            adapter=adapter,
+            on_poll=None,
+        )
+
+        assert "repeating" in adapter.posts_plain[0].lower()
         assert adapter.posts_assistant == []
         assert ProcessingState.FAILED in adapter.reacts
 
@@ -355,9 +391,11 @@ class TestRunCursorReplyExceptions:
         cursor = _client()
         cursor.followup.return_value = AgentResult(
             agent_id="ag_exist",
-            run_id="run2",
-            status=RunStatus.FINISHED,
-            result_text="More",
+            status=AgentStatus.FINISHED,
+            messages=[AgentMessage(id="m2", type="assistant_message", text="More")],
+        )
+        cursor.get_latest_assistant_message_obj.return_value = AgentMessage(
+            id="m2", type="assistant_message", text="More"
         )
         original_save = repo.save
 
