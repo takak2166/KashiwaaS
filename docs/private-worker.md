@@ -62,7 +62,7 @@ Bot payloads and `POST /v1/agents` need the **`env.name`** string (often `cursor
 ```bash
 curl -u "$CURSOR_API_KEY:" \
   "https://api.cursor.com/v1/agents?limit=20" \
-  | jq '.agents[] | select(.env.type == "machine") | {id, status, env}'
+  | jq '.items[] | select(.env.type == "machine") | {id, status, env}'
 ```
 
 Set `CURSOR_ENV_NAME` to the **`env.name`** you see for runs that used your ubuntu24 worker (same value the dashboard used when those agents were created).
@@ -119,7 +119,7 @@ curl -u "$CURSOR_API_KEY:" \
 
 # 2. env.name still valid for API? (optional: recent machine agents)
 curl -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=10" \
-  | jq --arg n "$CURSOR_ENV_NAME" '.agents[] | select(.env.name == $n) | {id, status, env}'
+  | jq --arg n "$CURSOR_ENV_NAME" '.items[] | select(.env.name == $n) | {id, status, env}'
 ```
 
 Pass criteria: primary worker row present for your `workspaceRootPath`, empty `repoOwner` / `repoName` (no-repo). For cutover, at least one recent agent should show the same `env.name` as `CURSOR_ENV_NAME`.
