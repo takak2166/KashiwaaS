@@ -39,7 +39,7 @@ When the Bot or curl receives **403 Forbidden**:
 1. **Wrong key type** — Service Account keys start pool workers, not My Machines. Use a **user** API key for `machine`.
 2. **Key expired or revoked** — Regenerate in the dashboard and update host `.env`; restart Bot.
 3. **Self-hosted not allowed** — Team admin must enable *Allow Self-Hosted Machines* in Cloud Agents settings.
-4. **Wrong `CURSOR_ENV_NAME`** — Must match the worker's internal label (`cursor-agent-worker-…`), not the UI display name.
+4. **Wrong `CURSOR_ENV_NAME`** — Must be `env.name` from `GET /v1/agents` (often `cursor-agent-worker-…`), not the dashboard display string from `GET /v0/private-workers` (field `.name`). See [private-worker.md](private-worker.md).
 
 ## Related
 
