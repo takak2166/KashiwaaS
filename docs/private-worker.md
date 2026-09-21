@@ -7,7 +7,7 @@ KashiwaaS Bot launches Cursor Cloud Agents on a **self-hosted machine** (Remote 
 | Setting | Value | Notes |
 |---------|-------|-------|
 | `CURSOR_ENV_TYPE` | `machine` | Remote Control / My Machines |
-| `CURSOR_ENV_NAME` | `<your-machine-env-name>` | API internal label — **not** the UI display name; resolve via curl below |
+| `CURSOR_ENV_NAME` | `<machine-env.name>` | Value for `POST /v1/agents` → `env.name` — **not** the dashboard display string from `v0/private-workers` |
 | `CURSOR_LAUNCH_MODE` | `env_only` | ubuntu24 worker has **no repo** checkout |
 | Chat platform | Slack | Mattermost is out of scope for production cutover |
 
@@ -19,45 +19,78 @@ KashiwaaS Bot launches Cursor Cloud Agents on a **self-hosted machine** (Remote 
 
 ## Resolve worker names (required before cutover)
 
-Re-fetch before changing production values:
+Re-fetch before changing production values.
+
+### 1. List connected workers (`GET /v0/private-workers`)
+
+The public API returns **flat** worker objects (no `labels[]`, no internal `cursor-agent-worker-…` field):
 
 ```bash
 curl -u "$CURSOR_API_KEY:" \
   "https://api.cursor.com/v0/private-workers?status=all&limit=50" \
-  | jq '.workers[] | {display_name, env_name: (.labels[] | select(.key=="name") | .value), worker_id: .id, repos}'
+  | jq '.workers[] | {
+      workerId,
+      display_name: .name,
+      workspaceRootPath,
+      repoOwner,
+      repoName,
+      isInUse
+    }'
 ```
 
-Pick the row for your ubuntu24 production machine. Set `CURSOR_ENV_NAME` to the **`env_name`** value (internal API label), not the UI display name.
+Example shape (do not commit live IDs):
 
-Existing agents' `env` field:
+```json
+{
+  "workerId": "<uuid>",
+  "display_name": "~/ghq/github.com/takak2166 @ ubuntu24",
+  "workspaceRootPath": "/home/ubuntu/ghq/github.com/takak2166",
+  "repoOwner": "",
+  "repoName": "",
+  "isInUse": false
+}
+```
+
+Use **`display_name`** or **`workspaceRootPath`** to pick the ubuntu24 production row. The JSON field **`name`** in this response is the UI label only.
+
+### 2. Set `CURSOR_ENV_NAME` (`env.name` for the API)
+
+Bot payloads and `POST /v1/agents` need the **`env.name`** string (often `cursor-agent-worker-…`). That value is **not** present on the flat `v0/private-workers` response above, so jq filters like `.labels[] | select(.key=="name")` will not match anything.
+
+**Recommended:** copy from recent agents that ran on your machine:
 
 ```bash
 curl -u "$CURSOR_API_KEY:" \
-  "https://api.cursor.com/v1/agents?limit=5"
+  "https://api.cursor.com/v1/agents?limit=20" \
+  | jq '.agents[] | select(.env.type == "machine") | {id, status, env}'
 ```
+
+Set `CURSOR_ENV_NAME` to the **`env.name`** you see for runs that used your ubuntu24 worker (same value the dashboard used when those agents were created).
+
+If you have no history yet, start one agent from the Cursor UI on that machine (no-repo / My Machines), then re-run the query above.
 
 ### Example worker record
 
-Example shape after resolving via curl (do **not** commit live values):
+Example shape after resolving (do **not** commit live values):
 
 ```yaml
 cursor_env:
   type: machine
-  display_name: "~/ghq/github.com/takak2166 @ ubuntu24"   # UI label — example only
-  name: <your-machine-env-name>                            # POST /v1/agents env.name → CURSOR_ENV_NAME
-  worker_id: <your-worker-id>
-  workspace: /home/ubuntu/ghq/github.com/takak2166
-  repos: []                                                # no-repo worker
+  display_name: "~/ghq/github.com/takak2166 @ ubuntu24"   # v0 .name — humans / dashboard
+  name: cursor-agent-worker-xxxxxxxxxx                      # v1 env.name → CURSOR_ENV_NAME
+  worker_id: "<uuid from v0 workerId>"
+  workspace: /home/ubuntu/ghq/github.com/takak2166          # v0 workspaceRootPath
+  repos: []                                                 # empty repoOwner/repoName on v0
   machine: ubuntu24
 ```
 
 ### Display name vs API `env.name`
 
-| UI / Slack `worker=` | Bot `CURSOR_ENV_NAME` |
-|----------------------|------------------------|
-| `~/ghq/github.com/takak2166 @ ubuntu24` | `<your-machine-env-name>` (from curl) |
-
-The Bot and API payloads **must** use the internal `name` label. The display name is for humans and the Cursor dashboard only.
+| Source | Field | Example role |
+|--------|-------|----------------|
+| `GET /v0/private-workers` | `.name` | Dashboard display — **do not** use as `CURSOR_ENV_NAME` |
+| `GET /v1/agents` | `.env.name` | Bot / API — **set `CURSOR_ENV_NAME` to this** |
+| Slack / UI `worker=` | display string | Same as v0 `.name` |
 
 ## Worker lifecycle
 
@@ -78,22 +111,25 @@ ubuntu24 worker is connected via **Cursor Remote Control** (IDE / CLI outbound c
 ```bash
 : "${CURSOR_ENV_NAME:?Set CURSOR_ENV_NAME}"
 
-# 1. Worker connected?
+# 1. Worker connected? (match by workspace — v0 has no env.name)
+WORKSPACE="/home/ubuntu/ghq/github.com/takak2166"
 curl -u "$CURSOR_API_KEY:" \
   "https://api.cursor.com/v0/private-workers?status=all&limit=50" \
-  | jq --arg n "$CURSOR_ENV_NAME" '.workers[] | select(.labels[]? | select(.key=="name" and .value==$n))'
+  | jq --arg ws "$WORKSPACE" '.workers[] | select(.workspaceRootPath == $ws)'
 
-# 2. Optional: list recent agents on this machine
-curl -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=5"
+# 2. env.name still valid for API? (optional: recent machine agents)
+curl -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=10" \
+  | jq --arg n "$CURSOR_ENV_NAME" '.agents[] | select(.env.name == $n) | {id, status, env}'
 ```
 
-Pass criteria: primary worker row present, status connected, `repos` empty (no-repo).
+Pass criteria: primary worker row present for your `workspaceRootPath`, empty `repoOwner` / `repoName` (no-repo). For cutover, at least one recent agent should show the same `env.name` as `CURSOR_ENV_NAME`.
 
 ## Related docs
 
 - [cursor-secrets.md](cursor-secrets.md) — API key type, host placement, 403 triage
 - [runtime-config.md](runtime-config.md) — environment variables
 - [bot.md](bot.md) — Slack Bot operation
+- [private-worker-e2e.md](private-worker-e2e.md) — curl + Slack E2E
 
 ## References
 
