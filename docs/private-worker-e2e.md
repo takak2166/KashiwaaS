@@ -4,7 +4,7 @@ Validate self-hosted **machine** launches before enabling the Slack Bot path in 
 
 **Platform:** Slack only (Mattermost out of scope).
 
-**Target worker:** see [private-worker.md](private-worker.md) — resolve `CURSOR_ENV_NAME` via curl; set `CURSOR_ENV_TYPE=machine` and `CURSOR_LAUNCH_MODE=env_only` in host `.env` for the Bot.
+**Target worker:** see [private-worker.md](private-worker.md) — list workers on `v0`, set `CURSOR_ENV_NAME` from `v1/agents` `env.name`; set `CURSOR_ENV_TYPE=machine` and `CURSOR_LAUNCH_MODE=env_only` in host `.env` for the Bot.
 
 ## Phases
 
@@ -24,9 +24,16 @@ test -n "$CURSOR_API_KEY"
 curl -sf -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/me" >/dev/null
 curl -sf -u "$CURSOR_API_KEY:" \
   "https://api.cursor.com/v0/private-workers?status=all&limit=50" | jq -e '.workers | length > 0'
+
+curl -s -u "$CURSOR_API_KEY:" \
+  "https://api.cursor.com/v0/private-workers?status=all&limit=50" \
+  | jq '.workers[] | {workerId, display_name: .name, workspaceRootPath}'
+
+curl -s -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=20" \
+  | jq '.agents[] | select(.env.type == "machine") | .env.name' | sort -u
 ```
 
-Resolve and export `CURSOR_ENV_NAME` (see [private-worker.md](private-worker.md)).
+Export `CURSOR_ENV_NAME` from `v1/agents` `env.name` (see [private-worker.md](private-worker.md)).
 
 ## Phase 1 — curl (required before Bot)
 
