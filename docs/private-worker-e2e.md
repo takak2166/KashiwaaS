@@ -30,7 +30,7 @@ curl -s -u "$CURSOR_API_KEY:" \
   | jq '.workers[] | {workerId, display_name: .name, workspaceRootPath}'
 
 curl -s -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents?limit=20" \
-  | jq '.agents[] | select(.env.type == "machine") | .env.name' | sort -u
+  | jq '.items[] | select(.env.type == "machine") | .env.name' | sort -u
 ```
 
 Export `CURSOR_ENV_NAME` from `v1/agents` `env.name` (see [private-worker.md](private-worker.md)).
