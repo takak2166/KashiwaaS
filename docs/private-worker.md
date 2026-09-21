@@ -61,7 +61,6 @@ The Bot and API payloads **must** use the internal `name` label. The display nam
 
 ## Related docs
 
-- [cursor-secrets.md](cursor-secrets.md) — API key type, host placement, 403 triage
 - [runtime-config.md](runtime-config.md) — environment variables
 - [bot.md](bot.md) — Slack Bot operation
 
