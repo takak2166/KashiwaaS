@@ -20,7 +20,7 @@ jobs:
 
       - name: Install Poetry
         run: |
-          pip install poetry==2.4.1
+          pip install poetry==2.5.1
 
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
