@@ -21,6 +21,16 @@
       "matchPackageNames": ["python"],
       "groupName": "python",
       "groupSlug": "python"
+    },
+    {
+      "description": "Kibana requires the same version as Elasticsearch; bump their Docker images together",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "docker.elastic.co/elasticsearch/elasticsearch",
+        "docker.elastic.co/kibana/kibana"
+      ],
+      "groupName": "elastic stack",
+      "groupSlug": "elastic-stack"
     }
   ],
   "schedule": ["before 3am on monday"],
