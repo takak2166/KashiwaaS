@@ -30,8 +30,8 @@ def verify_slack_signature(
     if abs(time.time() - ts) > max_age_seconds:
         raise SlackSignatureError("stale timestamp")
 
-    basestring = f"v0:{timestamp_header}:{body.decode('utf-8')}"
-    digest = hmac.new(signing_secret.encode("utf-8"), basestring.encode("utf-8"), hashlib.sha256).hexdigest()
+    basestring = b"v0:" + timestamp_header.encode("utf-8") + b":" + body
+    digest = hmac.new(signing_secret.encode("utf-8"), basestring, hashlib.sha256).hexdigest()
     expected = f"v0={digest}"
     if not hmac.compare_digest(expected, signature_header):
         raise SlackSignatureError("signature mismatch")

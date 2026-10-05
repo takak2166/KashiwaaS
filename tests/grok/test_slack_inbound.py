@@ -54,8 +54,8 @@ class _MockForwarder:
 
 def _sign(secret: str, body: bytes) -> tuple[str, str]:
     ts = str(int(time.time()))
-    basestring = f"v0:{ts}:{body.decode('utf-8')}"
-    digest = hmac.new(secret.encode(), basestring.encode(), hashlib.sha256).hexdigest()
+    basestring = b"v0:" + ts.encode("utf-8") + b":" + body
+    digest = hmac.new(secret.encode("utf-8"), basestring, hashlib.sha256).hexdigest()
     return ts, f"v0={digest}"
 
 
