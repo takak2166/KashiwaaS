@@ -24,6 +24,7 @@ from src.grok.slack_inbound.events import (
     parse_slack_envelope,
     slack_dedup_key,
 )
+from src.grok.slack_inbound.pending_reply import PendingSlackReply, PendingSlackReplyStore
 from src.grok.slack_inbound.reply import SlackReplier, SlackThreadTarget
 from src.grok.slack_inbound.verify import SlackSignatureError, verify_slack_signature
 
@@ -40,6 +41,7 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
     config: SlackInboundConfig
     forwarder: GrokForwarder
     inbound_dedup: DedupeStore
+    pending_replies: PendingSlackReplyStore
     replier: SlackReplier | None
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -131,7 +133,18 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
         envelope_event_id = str(envelope.get("event_id") or "") or None
         dedup_key = slack_dedup_key(team_id, event, envelope_event_id=envelope_event_id)
         if self.inbound_dedup.is_duplicate(dedup_key):
-            LOG.info("duplicate slack inbound skipped key=%s", dedup_key)
+            LOG.info("duplicate slack inbound key=%s", dedup_key)
+            pending = self.pending_replies.get(dedup_key)
+            if pending is not None and self.replier is not None:
+                handler = self
+
+                def _retry_slack_reply_only() -> None:
+                    if handler.replier.post_thread_reply(pending.target, pending.text):
+                        handler.pending_replies.forget(dedup_key)
+                    else:
+                        LOG.warning("slack thread reply retry failed key=%s", dedup_key)
+
+                threading.Thread(target=_retry_slack_reply_only, daemon=True).start()
             self.send_response(200)
             self.end_headers()
             return
@@ -174,8 +187,16 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
                     thread_ts=canonical.thread_id,
                     event_id=str(envelope_event_id or event.get("client_msg_id") or canonical.post_id),
                 )
-                if not handler.replier.post_thread_reply(target, reply_text):
-                    handler.inbound_dedup.forget(dedup_key)
+                handler.pending_replies.put(dedup_key, PendingSlackReply(target=target, text=reply_text))
+                if handler.replier.post_thread_reply(target, reply_text):
+                    handler.pending_replies.forget(dedup_key)
+                else:
+                    LOG.warning(
+                        "slack thread reply failed key=%s channel=%s thread_ts=%s",
+                        dedup_key,
+                        canonical.channel_id,
+                        canonical.thread_id,
+                    )
 
         threading.Thread(target=_process_grok_inbound, daemon=True).start()
 
@@ -185,6 +206,7 @@ def make_handler_class(
     forwarder: GrokForwarder,
     inbound_dedup: DedupeStore,
     replier: SlackReplier | None,
+    pending_replies: PendingSlackReplyStore | None = None,
 ) -> type[SlackInboundHandler]:
     class _Handler(SlackInboundHandler):
         pass
@@ -192,6 +214,7 @@ def make_handler_class(
     _Handler.config = config
     _Handler.forwarder = forwarder
     _Handler.inbound_dedup = inbound_dedup
+    _Handler.pending_replies = pending_replies or PendingSlackReplyStore()
     _Handler.replier = replier
     return _Handler
 

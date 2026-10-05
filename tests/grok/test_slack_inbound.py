@@ -231,3 +231,77 @@ def test_slack_events_thread_broadcast_still_forwards():
         assert len(forwarder.calls) == 1
     finally:
         httpd.shutdown()
+
+
+class _FlakyReplier:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._fail_next = True
+
+    def post_thread_reply(self, target, text: str) -> bool:
+        self.calls.append((target.channel_id, text))
+        if self._fail_next:
+            self._fail_next = False
+            return False
+        return True
+
+
+def test_slack_reply_failure_keeps_dedup_and_retries_reply_only():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="grok answer")
+    replier = _FlakyReplier()
+
+    handler_cls = make_handler_class(
+        SlackInboundConfig(signing_secret=secret),
+        forwarder,
+        DedupeStore(3600),
+        replier,
+    )
+    httpd = serve("127.0.0.1", 0, handler_cls)
+    host, port = httpd.server_address
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+
+    envelope = {
+        "type": "event_callback",
+        "team_id": "T1",
+        "event_id": "Ev-reply-retry",
+        "event": {
+            "type": "app_mention",
+            "channel": "C1",
+            "ts": "555.666",
+            "thread_ts": "555.555",
+            "user": "U1",
+            "text": "<@B> retry me",
+        },
+    }
+    body = json.dumps(envelope).encode()
+    ts, sig = _sign(secret, body)
+    req = urllib.request.Request(f"http://{host}:{port}/slack/events", data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("X-Slack-Request-Timestamp", ts)
+    req.add_header("X-Slack-Signature", sig)
+
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline and len(forwarder.calls) < 1:
+        time.sleep(0.05)
+    assert len(forwarder.calls) == 1
+    deadline = time.time() + 5.0
+    while time.time() < deadline and len(replier.calls) < 1:
+        time.sleep(0.05)
+    assert len(replier.calls) == 1
+
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline and len(replier.calls) < 2:
+        time.sleep(0.05)
+    assert len(forwarder.calls) == 1
+    assert len(replier.calls) == 2
+    assert replier.calls[0] == replier.calls[1]
+
+    httpd.shutdown()

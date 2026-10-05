@@ -34,7 +34,7 @@ class SlackWebReplier:
     def post_thread_reply(self, target: SlackThreadTarget, text: str) -> bool:
         key = f"{target.team_id}:{target.event_id or target.thread_ts}"
         if self._outbound.already_replied(key):
-            return False
+            return True
         try:
             self._client.chat_postMessage(
                 channel=target.channel_id,
