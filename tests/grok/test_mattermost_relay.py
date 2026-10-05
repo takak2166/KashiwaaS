@@ -12,7 +12,7 @@ from src.grok.common.canonical import CanonicalInbound
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwardResult
 from src.grok.mattermost_relay.correlation import MattermostCorrelationStore
-from src.grok.mattermost_relay.parse import parse_mm_payload, to_canonical
+from src.grok.mattermost_relay.parse import parse_mm_payload, strip_bot_mentions, to_canonical
 from src.grok.mattermost_relay.server import MattermostRelayConfig, make_handler_class, serve
 
 
@@ -38,11 +38,31 @@ def test_parse_form_and_canonical_thread_id():
         }
     ).encode()
     payload = parse_mm_payload(raw, "application/x-www-form-urlencoded")
-    canonical = to_canonical(payload)
+    canonical = to_canonical(payload, bot_username="kashiwaas")
     assert canonical.platform == "mattermost"
     assert canonical.thread_id == "p1"
     assert canonical.text == "hello"
     assert canonical.trigger_id == "tr1"
+
+
+def test_strip_bot_mentions_keeps_other_users():
+    text = "@kashiwaas @alice に確認して"
+    assert strip_bot_mentions(text, bot_username="kashiwaas") == "@alice に確認して"
+
+
+def test_strip_trigger_word_only_at_message_start():
+    assert strip_bot_mentions("robot hi", trigger_word="bot") == "robot hi"
+    assert strip_bot_mentions("bot hello", trigger_word="bot") == "hello"
+
+
+def test_to_canonical_preserves_user_mentions():
+    payload = {
+        "channel_id": "ch1",
+        "post_id": "p1",
+        "text": "@kashiwaas @alice に確認して",
+    }
+    canonical = to_canonical(payload, bot_username="kashiwaas")
+    assert canonical.text == "@alice に確認して"
 
 
 def test_relay_auth_dedup_and_grok_json():

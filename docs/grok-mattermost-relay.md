@@ -13,6 +13,9 @@ Entry point: `python -m src.grok.mattermost_relay.main`
 | `GROK_BEARER_TOKEN` | yes | Grok webhook Bearer key (same as Grok panel `key`) |
 | `RELAY_SHARED_SECRET` | yes | Query/header secret on relay URL |
 | `MM_OUTGOING_WEBHOOK_TOKEN` | yes | Must match MM outgoing webhook `token` field |
+| `MATTERMOST_BOT_USER_ID` | no | Bot user id for stripping `@userid` from forwarded text |
+| `MATTERMOST_BOT_USERNAME` | no | Bot username for stripping `@username` (e.g. `kashiwaas`) |
+| `MM_OUTGOING_TRIGGER_WORD` | no | Outgoing webhook trigger word when not present in payload |
 | `PORT` / `LISTEN_PORT` | no | Default `8080` |
 | `LISTEN_HOST` | no | Default `0.0.0.0` |
 | `MAX_BODY_BYTES` | no | Default 262144 |

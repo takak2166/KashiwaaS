@@ -40,6 +40,9 @@ def main() -> None:
         relay_shared_secret=relay_secret,
         mm_outgoing_webhook_token=mm_token,
         max_body_bytes=max_body,
+        bot_user_id=os.environ.get("MATTERMOST_BOT_USER_ID", "").strip(),
+        bot_username=os.environ.get("MATTERMOST_BOT_USERNAME", "").strip(),
+        mm_trigger_word=os.environ.get("MM_OUTGOING_TRIGGER_WORD", "").strip(),
     )
     forwarder = HttpGrokForwarder(grok_url, grok_bearer)
     handler_cls = make_handler_class(

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.parse import parse_qs
 
+from src.bot.adapters.mattermost.mention_parser import extract_question_mattermost
 from src.grok.common.canonical import CanonicalInbound
 
 
@@ -32,11 +34,24 @@ def parse_mm_payload(raw: bytes, content_type: str | None) -> dict[str, Any]:
     return {k: (v[0] if len(v) == 1 else v) for k, v in pairs.items()}
 
 
-def strip_bot_mentions(text: str) -> str:
-    import re
-
-    cleaned = re.sub(r"@\w+\b", "", text or "")
-    return cleaned.strip()
+def strip_bot_mentions(
+    text: str,
+    *,
+    bot_user_id: str = "",
+    bot_username: str = "",
+    trigger_word: str = "",
+) -> str:
+    """Strip bot/trigger tokens only; keep other ``@user`` mentions (see ``mention_parser``)."""
+    uid = (bot_user_id or "").strip()
+    uname = (bot_username or "").strip()
+    out = text or ""
+    if uid or uname:
+        effective_uid = uid or uname
+        out = extract_question_mattermost(out, effective_uid, bot_username=uname)
+    tw = (trigger_word or "").strip()
+    if tw:
+        out = re.sub(rf"^\s*(?:@)?{re.escape(tw)}\b", "", out)
+    return out.strip()
 
 
 def mattermost_thread_id(payload: dict[str, Any]) -> str:
@@ -46,11 +61,24 @@ def mattermost_thread_id(payload: dict[str, Any]) -> str:
     return root_id or post_id
 
 
-def to_canonical(payload: dict[str, Any], *, received_at: str | None = None) -> CanonicalInbound:
+def to_canonical(
+    payload: dict[str, Any],
+    *,
+    received_at: str | None = None,
+    bot_user_id: str = "",
+    bot_username: str = "",
+    default_trigger_word: str = "",
+) -> CanonicalInbound:
     channel_id = str(payload.get("channel_id") or "")
     post_id = str(payload.get("post_id") or payload.get("id") or "")
     user = str(payload.get("user_name") or payload.get("user_id") or payload.get("user") or "")
-    text = strip_bot_mentions(str(payload.get("text") or ""))
+    trigger_word = str(payload.get("trigger_word") or default_trigger_word or "")
+    text = strip_bot_mentions(
+        str(payload.get("text") or ""),
+        bot_user_id=bot_user_id,
+        bot_username=bot_username,
+        trigger_word=trigger_word,
+    )
     trigger_id = str(payload.get("trigger_id") or "") or None
     return CanonicalInbound(
         platform="mattermost",

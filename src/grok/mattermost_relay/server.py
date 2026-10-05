@@ -28,6 +28,9 @@ class MattermostRelayConfig:
     relay_shared_secret: str
     mm_outgoing_webhook_token: str
     max_body_bytes: int = 262144
+    bot_user_id: str = ""
+    bot_username: str = ""
+    mm_trigger_word: str = ""
 
 
 class MattermostRelayHandler(BaseHTTPRequestHandler):
@@ -89,7 +92,13 @@ class MattermostRelayHandler(BaseHTTPRequestHandler):
             self._respond(401, b"unauthorized")
             return
 
-        canonical = to_canonical(payload, received_at=datetime.now(UTC).isoformat())
+        canonical = to_canonical(
+            payload,
+            received_at=datetime.now(UTC).isoformat(),
+            bot_user_id=self.config.bot_user_id,
+            bot_username=self.config.bot_username,
+            default_trigger_word=self.config.mm_trigger_word,
+        )
         if not canonical.post_id:
             self._respond(400, b"missing post_id")
             return
