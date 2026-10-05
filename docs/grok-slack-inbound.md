@@ -32,13 +32,34 @@ Entry point: `python -m src.grok.slack_inbound.main`
 - Inbound: `team_id` + `event_id` (fallback `client_msg_id`, then `channel`+`ts`).
 - Outbound visible reply: at most one `chat.postMessage` per trigger event id.
 
+## Delivery reliability (Milestone 1)
+
+Slack Events API treats an HTTP **2xx** response as successful delivery. **Slack does not retry** the same event delivery after a successful response.
+
+This service **ACKs with 200 immediately** after signature verification and inbound dedup reservation, then forwards to Grok on a **daemon thread**. That ordering satisfies Slack’s short response deadline (~3 seconds) but implies a deliberate M1 trade-off:
+
+- If Grok forward fails **after** the ACK (transport error or non-2xx HTTP), the `app_mention` may be **silently lost** from Grok’s perspective. Slack will not redeliver because it already saw success.
+- On forward failure the service calls `inbound_dedup.forget` so a **rare** Slack redelivery of the same payload could be processed again; that does **not** cause Slack to retry.
+
+**Out of M1 scope:** durable queues, internal retry workers, blocking until Grok completes before ACK, or synchronous forward in the request thread (would exceed Slack’s deadline).
+
+## Operations (logs)
+
+Logger name: `slack-grok-inbound` (default level INFO via `main`).
+
+| Level | When | What to alert on |
+|-------|------|------------------|
+| **ERROR** | Grok forward failed after Slack ACK | `grok forward failed after slack ack event_id=…` — correlate with `event_id`, `key`, `transport`, `status`; indicates a mention that Slack will not retry |
+| WARNING | `chat.postMessage` failed (or retry failed) | `slack thread reply failed` / `slack thread reply retry failed` — Grok may have succeeded; dedup kept for reply-only retry on duplicate delivery |
+| INFO | Happy path / benign skip | `forwarded slack inbound`, `duplicate slack inbound`, `bot-authored slack inbound skipped` |
+
 ## Concurrency (Milestone 1)
 
-The service uses Python’s stock **single-thread** `HTTPServer`: one request is handled at a time on the listening port. This is intentional for M1 (no `ThreadingHTTPServer`, no post-ACK background queue in-process).
+The service uses Python’s stock **single-thread** `HTTPServer`: one request is handled at a time on the listening port. This is intentional for M1 (no `ThreadingHTTPServer`, no durable work queue).
 
 - **Slow clients:** Inbound POST bodies are read with a **socket read timeout** (default 30s, separate from the Grok forward HTTP client timeout, typically 60s). Clients that stall while sending the body get `408` and release the worker thread.
 - **While a request is in flight** (including signature verification, the synchronous HTTP 200 to Slack, or a background Grok forward still running on a daemon thread), **other connections wait**, including `GET /health`. Orchestrator health checks may time out during that window.
-- **Production:** Put a **reverse proxy** in front (TLS termination, request body buffering, and proxy read/send timeouts). Threading or “ACK first, process async” is out of M1 scope and may be revisited later.
+- **Production:** Put a **reverse proxy** in front (TLS termination, request body buffering, and proxy read/send timeouts). `ThreadingHTTPServer` and bounded worker pools are out of M1 scope and may be revisited later.
 
 ## Health
 

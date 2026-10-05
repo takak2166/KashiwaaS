@@ -165,8 +165,9 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
             result = handler.forwarder.forward(canonical)
             if result.transport_error or not (200 <= result.status < 300):
                 handler.inbound_dedup.forget(dedup_key)
-                LOG.warning(
-                    "grok forward failed key=%s transport=%s status=%s",
+                LOG.error(
+                    "grok forward failed after slack ack event_id=%s key=%s transport=%s status=%s",
+                    envelope_event_id or "",
                     dedup_key,
                     result.transport_error,
                     result.status,
