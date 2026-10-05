@@ -6,10 +6,14 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from http.client import IncompleteRead, RemoteDisconnected
 from typing import Protocol
 from urllib.error import URLError
 
 from src.grok.common.canonical import CanonicalInbound
+
+_BODY_READ_TRANSPORT_ERRORS = (TimeoutError, IncompleteRead, RemoteDisconnected)
+_HTTP_ERROR_BODY_READ_ERRORS = _BODY_READ_TRANSPORT_ERRORS + (URLError,)
 
 
 @dataclass(frozen=True)
@@ -59,13 +63,13 @@ class HttpGrokForwarder:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 try:
                     body = resp.read()
-                except TimeoutError:
+                except _BODY_READ_TRANSPORT_ERRORS:
                     return GrokForwardResult(status=0, body=b"", transport_error=True)
                 return GrokForwardResult(status=resp.status, body=body)
         except urllib.error.HTTPError as e:
             try:
                 body = e.read()
-            except (TimeoutError, URLError):
+            except _HTTP_ERROR_BODY_READ_ERRORS:
                 return GrokForwardResult(status=0, body=b"", transport_error=True)
             return GrokForwardResult(status=e.code, body=body)
         except (URLError, TimeoutError):
