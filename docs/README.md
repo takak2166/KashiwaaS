@@ -10,6 +10,8 @@ The former single long `design.md` is split by topic. The source of truth for be
 | [testing.md](testing.md) | Testing strategy, CI, local verification |
 | [operations.md](operations.md) | Deployment, operations, scaling |
 | [bot.md](bot.md) | KashiwaaS Bot (`@kashiwaas`) and Cursor API integration (summary) |
+| [grok-mattermost-relay.md](grok-mattermost-relay.md) | Mattermost Outgoing Webhook → Grok Bearer relay |
+| [grok-slack-inbound.md](grok-slack-inbound.md) | Slack Events API → Grok inbound (separate from Socket Mode bot) |
 | [stacked-pr-workflow.md](stacked-pr-workflow.md) | Stacked PR boundaries for large bot refactors (agent discipline) |
 | [e2e.md](e2e.md) | Minimal E2E with the stack up (Compose / CI dry-run) |
 

@@ -1,4 +1,4 @@
-"""TAK-170 §1.2 canonical JSON payload for Grok webhook inbound."""
+"""Canonical JSON payload for Grok webhook inbound."""
 
 from __future__ import annotations
 

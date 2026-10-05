@@ -1,4 +1,4 @@
-"""Unit tests for Mattermost → Grok relay (TAK-165)."""
+"""Unit tests for Mattermost → Grok relay."""
 
 from __future__ import annotations
 

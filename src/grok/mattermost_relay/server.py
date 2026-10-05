@@ -103,7 +103,7 @@ class MattermostRelayHandler(BaseHTTPRequestHandler):
             canonical.post_id,
             result.status,
         )
-        # MM webhook must not carry user-visible chat reply in the response body (TAK-170 / 166).
+        # MM webhook must not carry user-visible chat reply in the response body.
         self._respond(200, b"")
 
     def _respond(self, status: int, body: bytes) -> None:

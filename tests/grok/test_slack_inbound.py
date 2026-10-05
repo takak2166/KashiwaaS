@@ -1,4 +1,4 @@
-"""Unit tests for Slack Events → Grok inbound (TAK-167)."""
+"""Unit tests for Slack Events → Grok inbound."""
 
 from __future__ import annotations
 

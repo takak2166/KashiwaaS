@@ -1,4 +1,4 @@
-"""Server-side in-flight correlation for Mattermost replies (TAK-170 §3)."""
+"""Server-side in-flight correlation for Mattermost replies."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class MattermostCorrelationStore:
 
 
 class OutboundReplyIdempotency:
-    """At most one visible Bot PAT reply per trigger ``post_id`` (TAK-170 §6)."""
+    """At most one visible Bot PAT reply per trigger ``post_id``."""
 
     def __init__(self, ttl_seconds: int = 86400) -> None:
         self._ttl = ttl_seconds

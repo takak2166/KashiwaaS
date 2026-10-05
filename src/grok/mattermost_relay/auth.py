@@ -1,4 +1,4 @@
-"""Relay ingress authentication (TAK-165 / TAK-170 §3)."""
+"""Relay ingress authentication (Bearer token and shared secret)."""
 
 from __future__ import annotations
 

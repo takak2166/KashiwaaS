@@ -1,1 +1,1 @@
-"""Mattermost Outgoing Webhook → Grok Bearer relay (TAK-165)."""
+"""Mattermost Outgoing Webhook → Grok Bearer relay."""

@@ -1,1 +1,1 @@
-"""Slack Events API → Grok inbound path (TAK-167), separate from Socket Mode bot."""
+"""Slack Events API → Grok inbound path, separate from Socket Mode bot."""

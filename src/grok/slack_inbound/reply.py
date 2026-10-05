@@ -1,4 +1,4 @@
-"""Post thread replies as the @kashiwaas Slack app (TAK-167)."""
+"""Post thread replies as the @kashiwaas Slack app."""
 
 from __future__ import annotations
 
