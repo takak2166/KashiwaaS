@@ -18,8 +18,40 @@ from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwardResult
 from src.grok.mattermost_relay.correlation import OutboundReplyIdempotency
 from src.grok.slack_inbound.events import event_to_canonical, is_bot_authored_event, slack_dedup_key
-from src.grok.slack_inbound.reply import SlackWebReplier
+from src.grok.slack_inbound.reply import SlackThreadTarget, SlackWebReplier
 from src.grok.slack_inbound.server import SlackInboundConfig, make_handler_class, serve
+
+
+def test_outbound_reply_mark_if_absent_allows_only_one_claim():
+    store = OutboundReplyIdempotency()
+    key = "T1:Ev-concurrent"
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: store.mark_if_absent(key), range(32)))
+    assert results.count(True) == 1
+    assert results.count(False) == 31
+
+
+def test_slack_web_replier_concurrent_post_calls_slack_once():
+    store = OutboundReplyIdempotency()
+    replier = SlackWebReplier("xoxb-test", store)
+    in_post = threading.Event()
+    release_post = threading.Event()
+
+    def _slow_post(**_kwargs: object) -> None:
+        in_post.set()
+        assert release_post.wait(timeout=5.0)
+
+    replier._client = MagicMock()
+    replier._client.chat_postMessage.side_effect = _slow_post
+    target = SlackThreadTarget(team_id="T1", channel_id="C1", thread_ts="111.111", event_id="Ev-once")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(replier.post_thread_reply, target, "hello") for _ in range(32)]
+        assert in_post.wait(timeout=5.0)
+        release_post.set()
+        outcomes = [f.result() for f in futures]
+    assert outcomes.count(True) == 32
+    replier._client.chat_postMessage.assert_called_once()
 
 
 def test_slack_dedup_key_prefers_envelope_event_id():

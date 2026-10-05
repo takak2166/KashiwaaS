@@ -44,22 +44,28 @@ class MattermostCorrelationStore:
 
 
 class OutboundReplyIdempotency:
-    """At most one visible Bot PAT reply per trigger ``post_id``."""
+    """At most one visible outbound reply per idempotency key (e.g. Slack team:event)."""
 
     def __init__(self, ttl_seconds: int = 86400) -> None:
         self._ttl = ttl_seconds
         self._seen: dict[str, float] = {}
         self._lock = Lock()
 
-    def already_replied(self, post_id: str) -> bool:
-        now = time.time()
-        with self._lock:
-            expired = [k for k, t in self._seen.items() if now - t > self._ttl]
-            for k in expired:
-                del self._seen[k]
-            return post_id in self._seen
+    def _evict(self, now: float) -> None:
+        expired = [k for k, t in self._seen.items() if now - t > self._ttl]
+        for k in expired:
+            del self._seen[k]
 
-    def mark_replied(self, post_id: str) -> None:
+    def mark_if_absent(self, key: str) -> bool:
+        """Reserve ``key`` under one lock; return True if this caller owns the reply slot."""
         now = time.time()
         with self._lock:
-            self._seen[post_id] = now
+            self._evict(now)
+            if key in self._seen:
+                return False
+            self._seen[key] = now
+            return True
+
+    def forget(self, key: str) -> None:
+        with self._lock:
+            self._seen.pop(key, None)

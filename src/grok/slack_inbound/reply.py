@@ -32,8 +32,10 @@ class SlackWebReplier:
         self._outbound = outbound_idempotency
 
     def post_thread_reply(self, target: SlackThreadTarget, text: str) -> bool:
+        # Outbound reply idempotency (key below) is separate from inbound dedup / pending_replies,
+        # which use slack_dedup_key (envelope event_id preferred, else event fields + channel:ts).
         key = f"{target.team_id}:{target.event_id or target.thread_ts}"
-        if self._outbound.already_replied(key):
+        if not self._outbound.mark_if_absent(key):
             return True
         try:
             self._client.chat_postMessage(
@@ -43,6 +45,10 @@ class SlackWebReplier:
             )
         except SlackApiError as e:
             LOG.warning("slack post failed status=%s", getattr(e.response, "status_code", "unknown"))
+            self._outbound.forget(key)
             return False
-        self._outbound.mark_replied(key)
+        except Exception:
+            LOG.exception("slack post failed")
+            self._outbound.forget(key)
+            return False
         return True
