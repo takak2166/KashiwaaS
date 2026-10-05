@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 def relay_secret_authorized(handler: BaseHTTPRequestHandler, relay_shared_secret: str) -> bool:
     if not relay_shared_secret:
         return False
+    # Deprecated: kept for clients that cannot set headers; prefer the headers below.
     parsed = urlparse(handler.path)
     for values in parse_qs(parsed.query).get("secret", []):
         if hmac.compare_digest(values, relay_shared_secret):

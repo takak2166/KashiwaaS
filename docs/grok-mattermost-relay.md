@@ -11,7 +11,7 @@ Entry point: `python -m src.grok.mattermost_relay.main`
 | `GROK_TARGET_URL` | yes | Grok routine webhook URL (`https://` required; `http://` only with opt-in below) |
 | `GROK_ALLOW_INSECURE_HTTP` | no | Set to `1` to allow `http://` `GROK_TARGET_URL` (logs a startup WARNING; Bearer sent in cleartext) |
 | `GROK_BEARER_TOKEN` | yes | Grok webhook Bearer key (same as Grok panel `key`) |
-| `RELAY_SHARED_SECRET` | yes | Query/header secret on relay URL |
+| `RELAY_SHARED_SECRET` | yes | Relay auth secret — `Authorization`/`X-Relay-Secret` header preferred; `?secret=` query deprecated |
 | `MM_OUTGOING_WEBHOOK_TOKEN` | yes | Must match MM outgoing webhook `token` field |
 | `MATTERMOST_BOT_USER_ID` | no | Bot user id for stripping `@userid` from forwarded text |
 | `MATTERMOST_BOT_USERNAME` | no | Bot username for stripping `@username` (e.g. `kashiwaas`) |
@@ -47,9 +47,15 @@ The relay uses Python’s stock **single-thread** `HTTPServer`: one webhook (or 
 
 ## TLS and callback URL
 
-Deploy behind a **TLS-terminating reverse proxy** (HTTPS only on the public URL). Mattermost must POST to:
+Deploy behind a **TLS-terminating reverse proxy** (HTTPS only on the public URL). Mattermost must POST to `https://<relay-host>/mm` (JSON or form body).
 
-`https://<relay-host>/mm?secret=<RELAY_SHARED_SECRET>` (POST, JSON or form body).
+### Relay authentication
+
+Any one of the following carries `RELAY_SHARED_SECRET`:
+
+- `Authorization: Bearer <RELAY_SHARED_SECRET>` — recommended for production.
+- `X-Relay-Secret: <RELAY_SHARED_SECRET>` — recommended for production when `Authorization` is unavailable.
+- `?secret=<RELAY_SHARED_SECRET>` query parameter — **deprecated**. Retained only for callers that cannot set request headers (e.g. Mattermost Outgoing Webhooks); do not use for new integrations. Legacy URL form: `https://<relay-host>/mm?secret=<RELAY_SHARED_SECRET>`.
 
 Access logs must not record the query `secret`; the relay strips query strings from its own request log path.
 
