@@ -9,6 +9,7 @@ import threading
 
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import HttpGrokForwarder
+from src.grok.common.target_url import grok_target_url_from_env
 from src.grok.mattermost_relay.correlation import MattermostCorrelationStore
 from src.grok.mattermost_relay.server import MattermostRelayConfig, make_handler_class, serve
 
@@ -25,7 +26,7 @@ def _required_env(name: str) -> str:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    grok_url = _required_env("GROK_TARGET_URL")
+    grok_url = grok_target_url_from_env(LOG)
     grok_bearer = _required_env("GROK_BEARER_TOKEN")
     relay_secret = _required_env("RELAY_SHARED_SECRET")
     mm_token = _required_env("MM_OUTGOING_WEBHOOK_TOKEN")

@@ -9,6 +9,7 @@ import threading
 
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import HttpGrokForwarder
+from src.grok.common.target_url import grok_target_url_from_env
 from src.grok.mattermost_relay.correlation import OutboundReplyIdempotency
 from src.grok.slack_inbound.forward_pool import create_forward_executor
 from src.grok.slack_inbound.reply import SlackWebReplier
@@ -27,7 +28,7 @@ def _required_env(name: str) -> str:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    grok_url = _required_env("GROK_TARGET_URL")
+    grok_url = grok_target_url_from_env(LOG)
     grok_bearer = _required_env("GROK_BEARER_TOKEN")
     signing_secret = _required_env("SLACK_SIGNING_SECRET")
 

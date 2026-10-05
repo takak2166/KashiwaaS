@@ -8,7 +8,8 @@ Entry point: `python -m src.grok.slack_inbound.main`
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `GROK_TARGET_URL` | yes | Grok routine webhook URL |
+| `GROK_TARGET_URL` | yes | Grok routine webhook URL (`https://` required; `http://` only with opt-in below) |
+| `GROK_ALLOW_INSECURE_HTTP` | no | Set to `1` to allow `http://` `GROK_TARGET_URL` (logs a startup WARNING; Bearer sent in cleartext) |
 | `GROK_BEARER_TOKEN` | yes | Bearer for Grok webhook |
 | `SLACK_SIGNING_SECRET` | yes | Verify Slack Events API requests |
 | `SLACK_BOT_TOKEN` | for replies | `chat.postMessage` as @kashiwaas app |

@@ -8,7 +8,8 @@ Entry point: `python -m src.grok.mattermost_relay.main`
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `GROK_TARGET_URL` | yes | Grok routine webhook URL |
+| `GROK_TARGET_URL` | yes | Grok routine webhook URL (`https://` required; `http://` only with opt-in below) |
+| `GROK_ALLOW_INSECURE_HTTP` | no | Set to `1` to allow `http://` `GROK_TARGET_URL` (logs a startup WARNING; Bearer sent in cleartext) |
 | `GROK_BEARER_TOKEN` | yes | Grok webhook Bearer key (same as Grok panel `key`) |
 | `RELAY_SHARED_SECRET` | yes | Query/header secret on relay URL |
 | `MM_OUTGOING_WEBHOOK_TOKEN` | yes | Must match MM outgoing webhook `token` field |
