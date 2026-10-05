@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
+from src.grok.common.content_length import parse_content_length
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwarder
 from src.grok.slack_inbound.events import event_to_canonical, parse_slack_envelope, slack_dedup_key
@@ -49,7 +51,11 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        length = parse_content_length(self.headers.get("Content-Length"))
+        if length is None:
+            self.send_response(400)
+            self.end_headers()
+            return
         if length > self.config.max_body_bytes:
             self.send_response(413)
             self.end_headers()
@@ -110,31 +116,42 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
             envelope_event_id=envelope_event_id,
             received_at=datetime.now(UTC).isoformat(),
         )
-        result = self.forwarder.forward(canonical)
-        if result.transport_error:
-            self.inbound_dedup.forget(dedup_key)
-            self.send_response(502)
-            self.end_headers()
-            return
-        LOG.info(
-            "forwarded slack inbound channel=%s ts=%s grok_status=%s",
-            canonical.channel_id,
-            canonical.post_id,
-            result.status,
-        )
-
-        reply_text = result.reply_text()
-        if reply_text and self.replier is not None:
-            target = SlackThreadTarget(
-                team_id=team_id,
-                channel_id=canonical.channel_id,
-                thread_ts=canonical.thread_id,
-                event_id=str(envelope_event_id or event.get("client_msg_id") or canonical.post_id),
-            )
-            self.replier.post_thread_reply(target, reply_text)
 
         self.send_response(200)
         self.end_headers()
+
+        handler = self
+
+        def _process_grok_inbound() -> None:
+            result = handler.forwarder.forward(canonical)
+            if result.transport_error or not (200 <= result.status < 300):
+                handler.inbound_dedup.forget(dedup_key)
+                LOG.warning(
+                    "grok forward failed key=%s transport=%s status=%s",
+                    dedup_key,
+                    result.transport_error,
+                    result.status,
+                )
+                return
+            LOG.info(
+                "forwarded slack inbound channel=%s ts=%s grok_status=%s",
+                canonical.channel_id,
+                canonical.post_id,
+                result.status,
+            )
+
+            reply_text = result.reply_text()
+            if reply_text and handler.replier is not None:
+                target = SlackThreadTarget(
+                    team_id=team_id,
+                    channel_id=canonical.channel_id,
+                    thread_ts=canonical.thread_id,
+                    event_id=str(envelope_event_id or event.get("client_msg_id") or canonical.post_id),
+                )
+                if not handler.replier.post_thread_reply(target, reply_text):
+                    handler.inbound_dedup.forget(dedup_key)
+
+        threading.Thread(target=_process_grok_inbound, daemon=True).start()
 
 
 def make_handler_class(

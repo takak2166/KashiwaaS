@@ -90,8 +90,15 @@ def test_slack_events_forward_and_reply():
     with urllib.request.urlopen(req, timeout=5) as resp:
         assert resp.status == 200
 
+    deadline = time.time() + 5.0
+    while time.time() < deadline and len(forwarder.calls) < 1:
+        time.sleep(0.05)
+
     assert len(forwarder.calls) == 1
     assert forwarder.calls[0].team_id == "T1"
+    deadline = time.time() + 5.0
+    while time.time() < deadline and replier._client.chat_postMessage.call_count < 1:
+        time.sleep(0.05)
     replier._client.chat_postMessage.assert_called_once()
     kwargs = replier._client.chat_postMessage.call_args.kwargs
     assert kwargs["thread_ts"] == "111.111"

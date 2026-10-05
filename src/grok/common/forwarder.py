@@ -57,8 +57,16 @@ class HttpGrokForwarder:
         )
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                return GrokForwardResult(status=resp.status, body=resp.read())
+                try:
+                    body = resp.read()
+                except TimeoutError:
+                    return GrokForwardResult(status=0, body=b"", transport_error=True)
+                return GrokForwardResult(status=resp.status, body=body)
         except urllib.error.HTTPError as e:
-            return GrokForwardResult(status=e.code, body=e.read())
-        except URLError:
+            try:
+                body = e.read()
+            except (TimeoutError, URLError):
+                return GrokForwardResult(status=0, body=b"", transport_error=True)
+            return GrokForwardResult(status=e.code, body=body)
+        except (URLError, TimeoutError):
             return GrokForwardResult(status=0, body=b"", transport_error=True)

@@ -1,6 +1,6 @@
-# Mattermost → Grok HTTPS relay (TAK-165)
+# Mattermost → Grok HTTPS relay
 
-Mattermost Outgoing Webhook cannot send `Authorization: Bearer`. This service accepts MM webhooks, validates shared secrets, normalizes **canonical JSON** (TAK-170 §1.2), and POSTs to the Grok routine webhook with Bearer auth. **Does not** return chat text in the MM webhook HTTP response body.
+Mattermost Outgoing Webhook cannot send `Authorization: Bearer`. This service accepts MM webhooks, validates shared secrets, normalizes **canonical JSON**, and POSTs to the Grok routine webhook with Bearer auth. **Does not** return chat text in the MM webhook HTTP response body.
 
 Entry point: `python -m src.grok.mattermost_relay.main`
 
@@ -17,11 +17,15 @@ Entry point: `python -m src.grok.mattermost_relay.main`
 | `MAX_BODY_BYTES` | no | Default 262144 |
 | `INBOUND_DEDUP_TTL_SECONDS` | no | Dedup window for `post_id` (+ optional `trigger_id`) |
 
-Server-side **correlation** (`post_id` → `channel_id` + `thread_id`) is kept in-process for Bot PAT replies (TAK-170 §3); outbound PAT posting is coordinated with TAK-162.
+Server-side **correlation** (`post_id` → `channel_id` + `thread_id`) is kept in-process for Bot PAT replies; outbound PAT posting is coordinated separately.
 
-## Mattermost callback URL
+## TLS and callback URL
+
+Deploy behind a **TLS-terminating reverse proxy** (HTTPS only on the public URL). Mattermost must POST to:
 
 `https://<relay-host>/mm?secret=<RELAY_SHARED_SECRET>` (POST, JSON or form body).
+
+Access logs must not record the query `secret`; the relay strips query strings from its own request log path.
 
 ## Health
 

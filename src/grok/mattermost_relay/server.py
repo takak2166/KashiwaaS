@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
+from src.grok.common.content_length import parse_content_length
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwarder
 from src.grok.mattermost_relay.auth import mm_webhook_token_valid, relay_secret_authorized
@@ -54,7 +55,10 @@ class MattermostRelayHandler(BaseHTTPRequestHandler):
             self._respond(401, b"unauthorized")
             return
 
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        length = parse_content_length(self.headers.get("Content-Length"))
+        if length is None:
+            self._respond(400, b"bad request")
+            return
         if length > self.config.max_body_bytes:
             self._respond(413, b"payload too large")
             return
@@ -86,9 +90,10 @@ class MattermostRelayHandler(BaseHTTPRequestHandler):
             return
 
         result = self.forwarder.forward(canonical)
-        if result.transport_error:
+        if result.transport_error or not (200 <= result.status < 300):
             self.inbound_dedup.forget(dedup_key)
-            self._respond(502, b"")
+            upstream = 502 if result.transport_error else result.status
+            self._respond(upstream, b"")
             return
 
         self.correlation.put(
