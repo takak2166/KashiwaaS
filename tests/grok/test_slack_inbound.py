@@ -15,7 +15,7 @@ from src.grok.common.canonical import CanonicalInbound
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwardResult
 from src.grok.mattermost_relay.correlation import OutboundReplyIdempotency
-from src.grok.slack_inbound.events import event_to_canonical, slack_dedup_key
+from src.grok.slack_inbound.events import event_to_canonical, is_bot_authored_event, slack_dedup_key
 from src.grok.slack_inbound.reply import SlackWebReplier
 from src.grok.slack_inbound.server import SlackInboundConfig, make_handler_class, serve
 
@@ -23,6 +23,13 @@ from src.grok.slack_inbound.server import SlackInboundConfig, make_handler_class
 def test_slack_dedup_key_prefers_envelope_event_id():
     event = {"channel": "C1", "ts": "1.0"}
     assert slack_dedup_key("T1", event, envelope_event_id="Ev1") == "T1:Ev1"
+
+
+def test_is_bot_authored_event():
+    assert is_bot_authored_event({"bot_id": "B123"})
+    assert is_bot_authored_event({"subtype": "bot_message"})
+    assert not is_bot_authored_event({"subtype": "thread_broadcast"})
+    assert not is_bot_authored_event({"user": "U1"})
 
 
 def test_event_to_canonical_thread_ts():
@@ -111,3 +118,116 @@ def test_slack_events_forward_and_reply():
     replier._client.chat_postMessage.assert_called_once()
 
     httpd.shutdown()
+
+
+def _post_slack_event(
+    secret: str,
+    host: str,
+    port: int,
+    event: dict,
+    *,
+    event_id: str = "Ev-bot-filter",
+) -> None:
+    envelope = {
+        "type": "event_callback",
+        "team_id": "T1",
+        "event_id": event_id,
+        "event": event,
+    }
+    body = json.dumps(envelope).encode()
+    ts, sig = _sign(secret, body)
+    req = urllib.request.Request(f"http://{host}:{port}/slack/events", data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("X-Slack-Request-Timestamp", ts)
+    req.add_header("X-Slack-Signature", sig)
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
+
+
+def _start_test_server(secret: str, forwarder: _MockForwarder):
+    handler_cls = make_handler_class(
+        SlackInboundConfig(signing_secret=secret),
+        forwarder,
+        DedupeStore(3600),
+        None,
+    )
+    httpd = serve("127.0.0.1", 0, handler_cls)
+    host, port = httpd.server_address
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    return httpd, host, port
+
+
+def test_slack_events_skip_bot_id():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="nope")
+    httpd, host, port = _start_test_server(secret, forwarder)
+    try:
+        _post_slack_event(
+            secret,
+            host,
+            port,
+            {
+                "type": "app_mention",
+                "bot_id": "B999",
+                "channel": "C1",
+                "ts": "222.333",
+                "text": "<@BOT> from bot",
+            },
+            event_id="Ev-bot-id",
+        )
+        time.sleep(0.3)
+        assert forwarder.calls == []
+    finally:
+        httpd.shutdown()
+
+
+def test_slack_events_skip_bot_message_subtype():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="nope")
+    httpd, host, port = _start_test_server(secret, forwarder)
+    try:
+        _post_slack_event(
+            secret,
+            host,
+            port,
+            {
+                "type": "app_mention",
+                "subtype": "bot_message",
+                "channel": "C1",
+                "ts": "333.444",
+                "text": "<@BOT> bot subtype",
+            },
+            event_id="Ev-bot-subtype",
+        )
+        time.sleep(0.3)
+        assert forwarder.calls == []
+    finally:
+        httpd.shutdown()
+
+
+def test_slack_events_thread_broadcast_still_forwards():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="ok")
+    httpd, host, port = _start_test_server(secret, forwarder)
+    try:
+        _post_slack_event(
+            secret,
+            host,
+            port,
+            {
+                "type": "app_mention",
+                "subtype": "thread_broadcast",
+                "channel": "C1",
+                "ts": "444.555",
+                "user": "U1",
+                "text": "<@BOT> broadcast",
+            },
+            event_id="Ev-thread-broadcast",
+        )
+        deadline = time.time() + 5.0
+        while time.time() < deadline and len(forwarder.calls) < 1:
+            time.sleep(0.05)
+        assert len(forwarder.calls) == 1
+    finally:
+        httpd.shutdown()

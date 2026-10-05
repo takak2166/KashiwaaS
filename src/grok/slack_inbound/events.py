@@ -10,6 +10,16 @@ from src.grok.common.canonical import CanonicalInbound
 
 MENTION_PATTERN = re.compile(r"<@[\w]+>")
 
+_BOT_EVENT_SUBTYPES = frozenset({"bot_message"})
+
+
+def is_bot_authored_event(event: dict[str, Any]) -> bool:
+    """True when Slack marks the event as bot-authored (avoid relay loops)."""
+    if event.get("bot_id"):
+        return True
+    subtype = event.get("subtype")
+    return isinstance(subtype, str) and subtype in _BOT_EVENT_SUBTYPES
+
 
 def parse_slack_envelope(raw: bytes) -> dict[str, Any]:
     loaded = json.loads(raw.decode("utf-8") or "{}")

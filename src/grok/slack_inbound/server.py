@@ -13,7 +13,12 @@ from typing import Any
 from src.grok.common.content_length import parse_content_length
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwarder
-from src.grok.slack_inbound.events import event_to_canonical, parse_slack_envelope, slack_dedup_key
+from src.grok.slack_inbound.events import (
+    event_to_canonical,
+    is_bot_authored_event,
+    parse_slack_envelope,
+    slack_dedup_key,
+)
 from src.grok.slack_inbound.reply import SlackReplier, SlackThreadTarget
 from src.grok.slack_inbound.verify import SlackSignatureError, verify_slack_signature
 
@@ -98,6 +103,12 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
         team_id = str(envelope.get("team_id") or "")
         event = envelope.get("event") or {}
         if not isinstance(event, dict) or event.get("type") != "app_mention":
+            self.send_response(200)
+            self.end_headers()
+            return
+
+        if is_bot_authored_event(event):
+            LOG.info("bot-authored slack inbound skipped channel=%s ts=%s", event.get("channel"), event.get("ts"))
             self.send_response(200)
             self.end_headers()
             return
