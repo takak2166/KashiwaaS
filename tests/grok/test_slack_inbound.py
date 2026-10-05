@@ -7,6 +7,7 @@ import hmac
 import json
 import threading
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -52,11 +53,23 @@ class _MockForwarder:
         return GrokForwardResult(status=200, body=body)
 
 
-def _sign(secret: str, body: bytes) -> tuple[str, str]:
-    ts = str(int(time.time()))
-    basestring = b"v0:" + ts.encode("utf-8") + b":" + body
+def _sign(secret: str, body: bytes, ts: str | None = None) -> tuple[str, str]:
+    timestamp = ts or str(int(time.time()))
+    basestring = b"v0:" + timestamp.encode("utf-8") + b":" + body
     digest = hmac.new(secret.encode("utf-8"), basestring, hashlib.sha256).hexdigest()
-    return ts, f"v0={digest}"
+    return timestamp, f"v0={digest}"
+
+
+def _post_raw(host: str, port: int, body: bytes, headers: dict[str, str]) -> tuple[int, bytes]:
+    req = urllib.request.Request(f"http://{host}:{port}/slack/events", data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    for key, value in headers.items():
+        req.add_header(key, value)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
 
 
 def test_slack_events_forward_and_reply():
@@ -157,6 +170,74 @@ def _start_test_server(secret: str, forwarder: _MockForwarder):
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd, host, port
+
+
+def test_slack_events_invalid_signature_returns_401():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="nope")
+    httpd, host, port = _start_test_server(secret, forwarder)
+    try:
+        body = json.dumps({"type": "event_callback"}).encode()
+        ts, _ = _sign(secret, body)
+        status, _ = _post_raw(
+            host,
+            port,
+            body,
+            {
+                "X-Slack-Request-Timestamp": ts,
+                "X-Slack-Signature": "v0=deadbeef",
+            },
+        )
+        assert status == 401
+        assert forwarder.calls == []
+    finally:
+        httpd.shutdown()
+
+
+def test_slack_events_stale_timestamp_returns_401():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="nope")
+    httpd, host, port = _start_test_server(secret, forwarder)
+    try:
+        body = json.dumps({"type": "event_callback"}).encode()
+        old_ts = str(int(time.time()) - 10_000)
+        _, sig = _sign(secret, body, ts=old_ts)
+        status, _ = _post_raw(
+            host,
+            port,
+            body,
+            {
+                "X-Slack-Request-Timestamp": old_ts,
+                "X-Slack-Signature": sig,
+            },
+        )
+        assert status == 401
+        assert forwarder.calls == []
+    finally:
+        httpd.shutdown()
+
+
+def test_slack_events_url_verification_echoes_challenge():
+    secret = "signing-secret"
+    forwarder = _MockForwarder(calls=[], reply="nope")
+    httpd, host, port = _start_test_server(secret, forwarder)
+    try:
+        body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()
+        ts, sig = _sign(secret, body)
+        status, resp_body = _post_raw(
+            host,
+            port,
+            body,
+            {
+                "X-Slack-Request-Timestamp": ts,
+                "X-Slack-Signature": sig,
+            },
+        )
+        assert status == 200
+        assert json.loads(resp_body.decode()) == {"challenge": "abc123"}
+        assert forwarder.calls == []
+    finally:
+        httpd.shutdown()
 
 
 def test_slack_events_skip_bot_id():
