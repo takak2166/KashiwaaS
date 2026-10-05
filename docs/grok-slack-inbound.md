@@ -32,6 +32,14 @@ Entry point: `python -m src.grok.slack_inbound.main`
 - Inbound: `team_id` + `event_id` (fallback `client_msg_id`, then `channel`+`ts`).
 - Outbound visible reply: at most one `chat.postMessage` per trigger event id.
 
+## Concurrency (Milestone 1)
+
+The service uses Python’s stock **single-thread** `HTTPServer`: one request is handled at a time on the listening port. This is intentional for M1 (no `ThreadingHTTPServer`, no post-ACK background queue in-process).
+
+- **Slow clients:** Inbound POST bodies are read with a **socket read timeout** (default 30s, separate from the Grok forward HTTP client timeout, typically 60s). Clients that stall while sending the body get `408` and release the worker thread.
+- **While a request is in flight** (including signature verification, the synchronous HTTP 200 to Slack, or a background Grok forward still running on a daemon thread), **other connections wait**, including `GET /health`. Orchestrator health checks may time out during that window.
+- **Production:** Put a **reverse proxy** in front (TLS termination, request body buffering, and proxy read/send timeouts). Threading or “ACK first, process async” is out of M1 scope and may be revisited later.
+
 ## Health
 
 `GET /health` → `ok`

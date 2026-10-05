@@ -33,6 +33,14 @@ Edge cases — thread context split:
 - If both `root_id` and `post_id`/`id` are missing, `thread_id` is empty and omitted from the canonical JSON.
 - Inbound dedup keys on `post_id` (+ optional `trigger_id`), not `thread_id`; webhook retries keep the same thread.
 
+## Concurrency (Milestone 1)
+
+The relay uses Python’s stock **single-thread** `HTTPServer`: one webhook (or health check) at a time. This is intentional for M1 (no `ThreadingHTTPServer`, no empty-200-then-background-forward).
+
+- **Slow clients:** POST bodies are read with a **socket read timeout** (default 30s). That timeout applies only to reading the webhook body, not to the upstream Grok `forward()` call (urllib timeout, default 60s). Stalled uploads get `408`.
+- **While handling a webhook**, `forwarder.forward()` runs **synchronously** in the same thread, so a slow Grok response (up to the forward timeout) **blocks all other requests**, including `GET /health` and additional Mattermost retries.
+- **Production:** Use a **reverse proxy** with body buffering and appropriate timeouts. Post-ACK async processing or threading is out of M1 scope.
+
 ## TLS and callback URL
 
 Deploy behind a **TLS-terminating reverse proxy** (HTTPS only on the public URL). Mattermost must POST to:

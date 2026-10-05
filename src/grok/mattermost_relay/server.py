@@ -11,6 +11,11 @@ from typing import Any
 from src.grok.common.content_length import parse_content_length
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwarder
+from src.grok.common.request_body import (
+    DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
+    RequestBodyReadTimeoutError,
+    read_request_body,
+)
 from src.grok.mattermost_relay.auth import mm_webhook_token_valid, relay_secret_authorized
 from src.grok.mattermost_relay.correlation import MattermostCorrelationStore, MattermostRoutingContext
 from src.grok.mattermost_relay.parse import parse_mm_payload, to_canonical
@@ -63,7 +68,16 @@ class MattermostRelayHandler(BaseHTTPRequestHandler):
             self._respond(413, b"payload too large")
             return
 
-        raw = self.rfile.read(length)
+        read_timeout = getattr(
+            self.server,
+            "request_body_read_timeout",
+            DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
+        )
+        try:
+            raw = read_request_body(self.rfile, self.connection, length, read_timeout)
+        except RequestBodyReadTimeoutError:
+            self._respond(408, b"request timeout")
+            return
         try:
             payload = parse_mm_payload(raw, self.headers.get("Content-Type"))
         except (ValueError, UnicodeDecodeError) as e:
@@ -138,5 +152,8 @@ def serve(
     host: str,
     port: int,
     handler_cls: type[MattermostRelayHandler],
+    request_body_read_timeout: float = DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
 ) -> HTTPServer:
-    return HTTPServer((host, port), handler_cls)
+    httpd = HTTPServer((host, port), handler_cls)
+    httpd.request_body_read_timeout = request_body_read_timeout
+    return httpd

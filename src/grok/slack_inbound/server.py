@@ -13,6 +13,11 @@ from typing import Any
 from src.grok.common.content_length import parse_content_length
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import GrokForwarder
+from src.grok.common.request_body import (
+    DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
+    RequestBodyReadTimeoutError,
+    read_request_body,
+)
 from src.grok.slack_inbound.events import (
     event_to_canonical,
     is_bot_authored_event,
@@ -66,7 +71,17 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        raw = self.rfile.read(length)
+        read_timeout = getattr(
+            self.server,
+            "request_body_read_timeout",
+            DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
+        )
+        try:
+            raw = read_request_body(self.rfile, self.connection, length, read_timeout)
+        except RequestBodyReadTimeoutError:
+            self.send_response(408)
+            self.end_headers()
+            return
         try:
             verify_slack_signature(
                 self.config.signing_secret,
@@ -181,5 +196,12 @@ def make_handler_class(
     return _Handler
 
 
-def serve(host: str, port: int, handler_cls: type[SlackInboundHandler]) -> HTTPServer:
-    return HTTPServer((host, port), handler_cls)
+def serve(
+    host: str,
+    port: int,
+    handler_cls: type[SlackInboundHandler],
+    request_body_read_timeout: float = DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
+) -> HTTPServer:
+    httpd = HTTPServer((host, port), handler_cls)
+    httpd.request_body_read_timeout = request_body_read_timeout
+    return httpd
