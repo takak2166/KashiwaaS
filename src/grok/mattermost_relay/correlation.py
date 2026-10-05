@@ -23,13 +23,13 @@ class MattermostCorrelationStore:
         self._lock = Lock()
 
     def put(self, ctx: MattermostRoutingContext) -> None:
-        now = time.time()
+        now = time.monotonic()
         with self._lock:
             self._evict(now)
             self._by_post[ctx.post_id] = (ctx, now)
 
     def get(self, post_id: str) -> MattermostRoutingContext | None:
-        now = time.time()
+        now = time.monotonic()
         with self._lock:
             self._evict(now)
             entry = self._by_post.get(post_id)
@@ -58,7 +58,7 @@ class OutboundReplyIdempotency:
 
     def mark_if_absent(self, key: str) -> bool:
         """Reserve ``key`` under one lock; return True if this caller owns the reply slot."""
-        now = time.time()
+        now = time.monotonic()
         with self._lock:
             self._evict(now)
             if key in self._seen:

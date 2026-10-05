@@ -21,7 +21,7 @@ class DedupeStore:
             del self._seen[k]
 
     def is_duplicate(self, key: str) -> bool:
-        now = time.time()
+        now = time.monotonic()
         with self._lock:
             self._evict(now)
             if key in self._seen:
