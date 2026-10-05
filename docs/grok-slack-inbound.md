@@ -13,6 +13,7 @@ Entry point: `python -m src.grok.slack_inbound.main`
 | `SLACK_SIGNING_SECRET` | yes | Verify Slack Events API requests |
 | `SLACK_BOT_TOKEN` | for replies | `chat.postMessage` as @kashiwaas app |
 | `PORT` / `LISTEN_PORT` | no | Default `8090` |
+| `SLACK_GROK_FORWARD_MAX_WORKERS` | no | Max concurrent Grok forwards after Slack ACK (default `4`) |
 
 ## Slack app setup (panel / API)
 
@@ -36,7 +37,7 @@ Entry point: `python -m src.grok.slack_inbound.main`
 
 Slack Events API treats an HTTP **2xx** response as successful delivery. **Slack does not retry** the same event delivery after a successful response.
 
-This service **ACKs with 200 immediately** after signature verification and inbound dedup reservation, then forwards to Grok on a **daemon thread**. That ordering satisfies Slack’s short response deadline (~3 seconds) but implies a deliberate M1 trade-off:
+This service **ACKs with 200 immediately** after signature verification and inbound dedup reservation, then forwards to Grok on a **bounded thread pool** (`SLACK_GROK_FORWARD_MAX_WORKERS`, default 4). That ordering satisfies Slack’s short response deadline (~3 seconds) but implies a deliberate M1 trade-off:
 
 - If Grok forward fails **after** the ACK (transport error or non-2xx HTTP), the `app_mention` may be **silently lost** from Grok’s perspective. Slack will not redeliver because it already saw success.
 - On forward failure the service calls `inbound_dedup.forget` so a **rare** Slack redelivery of the same payload could be processed again; that does **not** cause Slack to retry.
@@ -58,8 +59,8 @@ Logger name: `slack-grok-inbound` (default level INFO via `main`).
 The service uses Python’s stock **single-thread** `HTTPServer`: one request is handled at a time on the listening port. This is intentional for M1 (no `ThreadingHTTPServer`, no durable work queue).
 
 - **Slow clients:** Inbound POST bodies are read with a **socket read timeout** (default 30s, separate from the Grok forward HTTP client timeout, typically 60s). Clients that stall while sending the body get `408` and release the worker thread.
-- **While a request is in flight** (including signature verification, the synchronous HTTP 200 to Slack, or a background Grok forward still running on a daemon thread), **other connections wait**, including `GET /health`. Orchestrator health checks may time out during that window.
-- **Production:** Put a **reverse proxy** in front (TLS termination, request body buffering, and proxy read/send timeouts). `ThreadingHTTPServer` and bounded worker pools are out of M1 scope and may be revisited later.
+- **While a request is in flight** on the HTTP thread (signature verification, dedup, and the immediate Slack 200 ACK), **other connections wait**, including `GET /health`. Grok forwards run on a **bounded pool** after ACK; they do not occupy the HTTP thread, but bursts queue in FIFO order until a worker is free (**queue-wait**, not reject+log). If the pool is shut down during deploy, new submits are **rejected** (dedup cleared, ERROR log).
+- **Production:** Put a **reverse proxy** in front (TLS termination, request body buffering, and proxy read/send timeouts). `ThreadingHTTPServer` remains out of M1 scope; tune `SLACK_GROK_FORWARD_MAX_WORKERS` for expected mention rate.
 
 ## Health
 

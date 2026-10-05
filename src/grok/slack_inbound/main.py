@@ -10,6 +10,7 @@ import threading
 from src.grok.common.dedup import DedupeStore
 from src.grok.common.forwarder import HttpGrokForwarder
 from src.grok.mattermost_relay.correlation import OutboundReplyIdempotency
+from src.grok.slack_inbound.forward_pool import create_forward_executor
 from src.grok.slack_inbound.reply import SlackWebReplier
 from src.grok.slack_inbound.server import SlackInboundConfig, make_handler_class, serve
 
@@ -43,11 +44,13 @@ def main() -> None:
     config = SlackInboundConfig(signing_secret=signing_secret, max_body_bytes=max_body)
     forwarder = HttpGrokForwarder(grok_url, grok_bearer)
     handler_cls = make_handler_class(config, forwarder, DedupeStore(dedup_ttl), replier)
-    httpd = serve(host, port, handler_cls)
+    forward_executor = create_forward_executor()
+    httpd = serve(host, port, handler_cls, forward_executor=forward_executor)
     LOG.info("listening on %s:%s (slack-grok-inbound)", host, port)
 
     def _shutdown(_signum: int, _frame: object) -> None:
         LOG.info("shutting down")
+        forward_executor.shutdown(wait=False, cancel_futures=True)
         threading.Thread(target=httpd.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, _shutdown)

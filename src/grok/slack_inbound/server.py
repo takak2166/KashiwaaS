@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -24,6 +25,7 @@ from src.grok.slack_inbound.events import (
     parse_slack_envelope,
     slack_dedup_key,
 )
+from src.grok.slack_inbound.forward_pool import create_forward_executor
 from src.grok.slack_inbound.pending_reply import PendingSlackReply, PendingSlackReplyStore
 from src.grok.slack_inbound.reply import SlackReplier, SlackThreadTarget
 from src.grok.slack_inbound.verify import SlackSignatureError, verify_slack_signature
@@ -199,7 +201,19 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
                         canonical.thread_id,
                     )
 
-        threading.Thread(target=_process_grok_inbound, daemon=True).start()
+        executor: ThreadPoolExecutor | None = getattr(self.server, "forward_executor", None)
+        if executor is None:
+            executor = create_forward_executor()
+            self.server.forward_executor = executor
+        try:
+            executor.submit(_process_grok_inbound)
+        except RuntimeError:
+            handler.inbound_dedup.forget(dedup_key)
+            LOG.error(
+                "grok forward rejected: executor shut down event_id=%s key=%s",
+                envelope_event_id or "",
+                dedup_key,
+            )
 
 
 def make_handler_class(
@@ -225,7 +239,9 @@ def serve(
     port: int,
     handler_cls: type[SlackInboundHandler],
     request_body_read_timeout: float = DEFAULT_REQUEST_BODY_READ_TIMEOUT_SECONDS,
+    forward_executor: ThreadPoolExecutor | None = None,
 ) -> HTTPServer:
     httpd = HTTPServer((host, port), handler_cls)
     httpd.request_body_read_timeout = request_body_read_timeout
+    httpd.forward_executor = forward_executor or create_forward_executor()
     return httpd

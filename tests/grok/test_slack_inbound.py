@@ -8,6 +8,7 @@ import json
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 
@@ -305,3 +306,76 @@ def test_slack_reply_failure_keeps_dedup_and_retries_reply_only():
     assert replier.calls[0] == replier.calls[1]
 
     httpd.shutdown()
+
+
+class _ConcurrencyTrackingForwarder:
+    def __init__(self) -> None:
+        self._gate = threading.Semaphore(0)
+        self._lock = threading.Lock()
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.calls: list[CanonicalInbound] = []
+
+    def forward(self, payload: CanonicalInbound) -> GrokForwardResult:
+        with self._lock:
+            self.calls.append(payload)
+            self.in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        self._gate.acquire()
+        with self._lock:
+            self.in_flight -= 1
+        return GrokForwardResult(status=200, body=b"{}")
+
+    def release_one(self) -> None:
+        self._gate.release()
+
+
+def test_slack_grok_forward_pool_caps_concurrent_workers():
+    secret = "signing-secret"
+    forwarder = _ConcurrencyTrackingForwarder()
+    pool_workers = 2
+    executor = ThreadPoolExecutor(max_workers=pool_workers, thread_name_prefix="test-grok-forward")
+
+    handler_cls = make_handler_class(
+        SlackInboundConfig(signing_secret=secret),
+        forwarder,
+        DedupeStore(3600),
+        None,
+    )
+    httpd = serve("127.0.0.1", 0, handler_cls, forward_executor=executor)
+    host, port = httpd.server_address
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        for i in range(4):
+            _post_slack_event(
+                secret,
+                host,
+                port,
+                {
+                    "type": "app_mention",
+                    "channel": "C1",
+                    "ts": f"900.{i}",
+                    "user": "U1",
+                    "text": "<@B> burst",
+                },
+                event_id=f"Ev-pool-{i}",
+            )
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline and forwarder.max_in_flight < pool_workers:
+            time.sleep(0.02)
+        assert forwarder.max_in_flight == pool_workers
+
+        for _ in range(4):
+            forwarder.release_one()
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline and len(forwarder.calls) < 4:
+            time.sleep(0.02)
+        assert len(forwarder.calls) == 4
+        assert forwarder.max_in_flight == pool_workers
+    finally:
+        httpd.shutdown()
+        executor.shutdown(wait=True)
