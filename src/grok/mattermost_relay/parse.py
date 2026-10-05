@@ -40,6 +40,7 @@ def strip_bot_mentions(text: str) -> str:
 
 
 def mattermost_thread_id(payload: dict[str, Any]) -> str:
+    """Thread key: ``root_id`` when present, else the post's own ``post_id``/``id`` (payload only, no API fetch)."""
     root_id = str(payload.get("root_id") or "").strip()
     post_id = str(payload.get("post_id") or payload.get("id") or "").strip()
     return root_id or post_id

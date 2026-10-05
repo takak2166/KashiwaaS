@@ -19,6 +19,20 @@ Entry point: `python -m src.grok.mattermost_relay.main`
 
 Server-side **correlation** (`post_id` → `channel_id` + `thread_id`) is kept in-process for Bot PAT replies; outbound PAT posting is coordinated separately.
 
+## Thread ID derivation
+
+Canonical `thread_id` is derived from the webhook payload only — no Mattermost API lookup is performed:
+
+- `root_id` present → `thread_id = root_id` (reply joins the parent thread context).
+- `root_id` absent → `thread_id = post_id` (top-level post starts a new thread context; `post_id` falls back to `id` if missing).
+
+Edge cases — thread context split:
+
+- If MM omits `root_id` on a reply (payload variant / webhook config), that reply opens a new thread context. One MM thread can therefore map to multiple canonical `thread_id`s; no repair fetch is attempted.
+- `root_id` may reference a root post the relay never received (e.g. only the reply matched the trigger word). Downstream must handle threads whose root was never ingested.
+- If both `root_id` and `post_id`/`id` are missing, `thread_id` is empty and omitted from the canonical JSON.
+- Inbound dedup keys on `post_id` (+ optional `trigger_id`), not `thread_id`; webhook retries keep the same thread.
+
 ## TLS and callback URL
 
 Deploy behind a **TLS-terminating reverse proxy** (HTTPS only on the public URL). Mattermost must POST to:
