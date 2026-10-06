@@ -48,11 +48,12 @@ class OutboundReplyIdempotency:
 
     def __init__(self, ttl_seconds: int = 86400) -> None:
         self._ttl = ttl_seconds
-        self._seen: dict[str, float] = {}
+        # value: (state, monotonic timestamp) where state is "in_flight" or "done"
+        self._seen: dict[str, tuple[str, float]] = {}
         self._lock = Lock()
 
     def _evict(self, now: float) -> None:
-        expired = [k for k, t in self._seen.items() if now - t > self._ttl]
+        expired = [k for k, (_, t) in self._seen.items() if now - t > self._ttl]
         for k in expired:
             del self._seen[k]
 
@@ -63,9 +64,22 @@ class OutboundReplyIdempotency:
             self._evict(now)
             if key in self._seen:
                 return False
-            self._seen[key] = now
+            self._seen[key] = ("in_flight", now)
             return True
+
+    def is_completed(self, key: str) -> bool:
+        with self._lock:
+            entry = self._seen.get(key)
+            return entry is not None and entry[0] == "done"
+
+    def mark_completed(self, key: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._evict(now)
+            self._seen[key] = ("done", now)
 
     def forget(self, key: str) -> None:
         with self._lock:
-            self._seen.pop(key, None)
+            entry = self._seen.get(key)
+            if entry is not None and entry[0] == "in_flight":
+                del self._seen[key]

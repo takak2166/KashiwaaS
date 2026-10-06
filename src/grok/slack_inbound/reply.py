@@ -36,7 +36,9 @@ class SlackWebReplier:
         # which use slack_dedup_key (envelope event_id preferred, else event fields + channel:ts).
         key = f"{target.team_id}:{target.event_id or target.thread_ts}"
         if not self._outbound.mark_if_absent(key):
-            return True
+            if self._outbound.is_completed(key):
+                return True
+            return False
         try:
             self._client.chat_postMessage(
                 channel=target.channel_id,
@@ -51,4 +53,5 @@ class SlackWebReplier:
             LOG.exception("slack post failed")
             self._outbound.forget(key)
             return False
+        self._outbound.mark_completed(key)
         return True

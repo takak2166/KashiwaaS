@@ -31,6 +31,24 @@ def test_outbound_reply_mark_if_absent_allows_only_one_claim():
     assert results.count(False) == 31
 
 
+def test_outbound_reply_completed_vs_in_flight():
+    store = OutboundReplyIdempotency()
+    key = "T1:Ev-state"
+    assert store.mark_if_absent(key) is True
+    assert store.is_completed(key) is False
+    store.mark_completed(key)
+    assert store.mark_if_absent(key) is False
+    assert store.is_completed(key) is True
+    store.forget(key)
+    assert store.is_completed(key) is True
+    assert store.mark_if_absent(key) is False
+
+    key2 = "T1:Ev-release"
+    assert store.mark_if_absent(key2) is True
+    store.forget(key2)
+    assert store.mark_if_absent(key2) is True
+
+
 def test_slack_web_replier_concurrent_post_calls_slack_once():
     store = OutboundReplyIdempotency()
     replier = SlackWebReplier("xoxb-test", store)
@@ -50,7 +68,8 @@ def test_slack_web_replier_concurrent_post_calls_slack_once():
         assert in_post.wait(timeout=5.0)
         release_post.set()
         outcomes = [f.result() for f in futures]
-    assert outcomes.count(True) == 32
+    assert outcomes.count(True) == 1
+    assert outcomes.count(False) == 31
     replier._client.chat_postMessage.assert_called_once()
 
 

@@ -164,42 +164,50 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
         handler = self
 
         def _process_grok_inbound() -> None:
-            result = handler.forwarder.forward(canonical)
-            if result.transport_error or not (200 <= result.status < 300):
-                handler.inbound_dedup.forget(dedup_key)
-                LOG.error(
-                    "grok forward failed after slack ack event_id=%s key=%s transport=%s status=%s",
-                    envelope_event_id or "",
-                    dedup_key,
-                    result.transport_error,
+            try:
+                result = handler.forwarder.forward(canonical)
+                if result.transport_error or not (200 <= result.status < 300):
+                    handler.inbound_dedup.forget(dedup_key)
+                    LOG.error(
+                        "grok forward failed after slack ack event_id=%s key=%s transport=%s status=%s",
+                        envelope_event_id or "",
+                        dedup_key,
+                        result.transport_error,
+                        result.status,
+                    )
+                    return
+                LOG.info(
+                    "forwarded slack inbound channel=%s ts=%s grok_status=%s",
+                    canonical.channel_id,
+                    canonical.post_id,
                     result.status,
                 )
-                return
-            LOG.info(
-                "forwarded slack inbound channel=%s ts=%s grok_status=%s",
-                canonical.channel_id,
-                canonical.post_id,
-                result.status,
-            )
 
-            reply_text = result.reply_text()
-            if reply_text and handler.replier is not None:
-                target = SlackThreadTarget(
-                    team_id=team_id,
-                    channel_id=canonical.channel_id,
-                    thread_ts=canonical.thread_id,
-                    event_id=str(envelope_event_id or event.get("client_msg_id") or canonical.post_id),
-                )
-                handler.pending_replies.put(dedup_key, PendingSlackReply(target=target, text=reply_text))
-                if handler.replier.post_thread_reply(target, reply_text):
-                    handler.pending_replies.forget(dedup_key)
-                else:
-                    LOG.warning(
-                        "slack thread reply failed key=%s channel=%s thread_ts=%s",
-                        dedup_key,
-                        canonical.channel_id,
-                        canonical.thread_id,
+                reply_text = result.reply_text()
+                if reply_text and handler.replier is not None:
+                    target = SlackThreadTarget(
+                        team_id=team_id,
+                        channel_id=canonical.channel_id,
+                        thread_ts=canonical.thread_id,
+                        event_id=str(envelope_event_id or event.get("client_msg_id") or canonical.post_id),
                     )
+                    handler.pending_replies.put(dedup_key, PendingSlackReply(target=target, text=reply_text))
+                    if handler.replier.post_thread_reply(target, reply_text):
+                        handler.pending_replies.forget(dedup_key)
+                    else:
+                        LOG.warning(
+                            "slack thread reply failed key=%s channel=%s thread_ts=%s",
+                            dedup_key,
+                            canonical.channel_id,
+                            canonical.thread_id,
+                        )
+            except Exception:
+                handler.inbound_dedup.forget(dedup_key)
+                LOG.exception(
+                    "unexpected error processing slack inbound after ack event_id=%s key=%s",
+                    envelope_event_id or "",
+                    dedup_key,
+                )
 
         executor: ThreadPoolExecutor | None = getattr(self.server, "forward_executor", None)
         if executor is None:
