@@ -378,6 +378,9 @@ class _FlakyReplier:
             return False
         return True
 
+    def outbound_reply_completed(self, target) -> bool:
+        return False
+
 
 def test_slack_reply_failure_keeps_dedup_and_retries_reply_only():
     secret = "signing-secret"

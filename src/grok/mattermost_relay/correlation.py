@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from enum import Enum
 from threading import Lock
 
 
@@ -43,6 +44,12 @@ class MattermostCorrelationStore:
             del self._by_post[k]
 
 
+class OutboundBeginResult(Enum):
+    SEND = "send"
+    SKIP_IN_FLIGHT = "skip_in_flight"
+    SKIP_DONE = "skip_done"
+
+
 class OutboundReplyIdempotency:
     """At most one visible outbound reply per idempotency key (e.g. Slack team:event)."""
 
@@ -57,15 +64,22 @@ class OutboundReplyIdempotency:
         for k in expired:
             del self._seen[k]
 
-    def mark_if_absent(self, key: str) -> bool:
-        """Reserve ``key`` under one lock; return True if this caller owns the reply slot."""
+    def begin_outbound(self, key: str) -> OutboundBeginResult:
+        """Atomically decide whether this caller may send the outbound reply."""
         now = time.monotonic()
         with self._lock:
             self._evict(now)
-            if key in self._seen:
-                return False
-            self._seen[key] = ("in_flight", now)
-            return True
+            entry = self._seen.get(key)
+            if entry is None:
+                self._seen[key] = ("in_flight", now)
+                return OutboundBeginResult.SEND
+            if entry[0] == "done":
+                return OutboundBeginResult.SKIP_DONE
+            return OutboundBeginResult.SKIP_IN_FLIGHT
+
+    def mark_if_absent(self, key: str) -> bool:
+        """Reserve ``key`` under one lock; return True if this caller owns the reply slot."""
+        return self.begin_outbound(key) is OutboundBeginResult.SEND
 
     def is_completed(self, key: str) -> bool:
         with self._lock:

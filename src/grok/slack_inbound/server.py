@@ -141,7 +141,9 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
                 handler = self
 
                 def _retry_slack_reply_only() -> None:
-                    if handler.replier.post_thread_reply(pending.target, pending.text):
+                    if handler.replier.post_thread_reply(pending.target, pending.text) or (
+                        handler.replier.outbound_reply_completed(pending.target)
+                    ):
                         handler.pending_replies.forget(dedup_key)
                     else:
                         LOG.warning("slack thread reply retry failed key=%s", dedup_key)
@@ -192,7 +194,9 @@ class SlackInboundHandler(BaseHTTPRequestHandler):
                         event_id=str(envelope_event_id or event.get("client_msg_id") or canonical.post_id),
                     )
                     handler.pending_replies.put(dedup_key, PendingSlackReply(target=target, text=reply_text))
-                    if handler.replier.post_thread_reply(target, reply_text):
+                    if handler.replier.post_thread_reply(target, reply_text) or (
+                        handler.replier.outbound_reply_completed(target)
+                    ):
                         handler.pending_replies.forget(dedup_key)
                     else:
                         LOG.warning(
