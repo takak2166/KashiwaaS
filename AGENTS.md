@@ -51,7 +51,6 @@ src/es_client/       Elasticsearch
 src/analysis/        Daily/weekly analysis and visualization
 src/bot/             Report posting, alerts, KashiwaaS bot
 src/cursor/          Cursor Cloud Agents API client
-src/grok/            Grok webhook relay (Mattermost) and Slack Events inbound
 src/kibana/          Kibana integration
 scripts/             Index setup, Kibana import, etc.
 ```
